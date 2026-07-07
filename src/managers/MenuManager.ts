@@ -6,6 +6,7 @@ import type { GUIControl, GameMenu } from "@/gui";
 import { ActionMenuManager } from "@/engine/menu/ActionMenuManager";
 import { EngineState } from "@/enums/engine/EngineState";
 import { PerformanceMonitor } from "@/utility/PerformanceMonitor";
+import { EventManager } from "@/managers/EventManager";
 
 /**
  * MenuManager class.
@@ -98,6 +99,11 @@ export class MenuManager {
   static Add(menu: GameMenu){
     if(!menu) return;
 
+    EventManager.FireEvent('menu.add', {
+      name: menu.constructor.name,
+      resref: menu.gui_resref
+    });
+
     MenuManager.MenuToolTip.hide();
     
     if(!menu.isOverlayGUI){
@@ -121,14 +127,25 @@ export class MenuManager {
   static Remove(menu: GameMenu){
     if(!menu) return;
 
+    EventManager.FireEvent('menu.remove', {
+      name: menu.constructor.name,
+      resref: menu.gui_resref
+    });
+
     if(!menu.isOverlayGUI){
       const mIdx = MenuManager.activeMenus.indexOf(menu);
       if(mIdx >= 0)
         MenuManager.activeMenus.splice(mIdx, 1);
 
       //Reshow the new top most menu in the list
-      if(MenuManager.activeMenus.length)
-        MenuManager.GetCurrentMenu().show();
+      if(MenuManager.activeMenus.length){
+        const currentMenu = MenuManager.GetCurrentMenu();
+        currentMenu.show();
+        EventManager.FireEvent('menu.show', {
+          name: currentMenu.constructor.name,
+          resref: currentMenu.gui_resref
+        });
+      }
 
       MenuManager.Resize();
 
@@ -154,7 +171,9 @@ export class MenuManager {
     }
   }
 
-  static GetCurrentMenu(){
+  /** Get the topmost menu in the active menu stack. */
+  static GetCurrentMenu() : GameMenu | undefined {
+    if(!MenuManager.activeMenus.length) return undefined;
     return MenuManager.activeMenus[MenuManager.activeMenus.length-1];
   }
 

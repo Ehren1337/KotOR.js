@@ -3,6 +3,7 @@ import { KotORModal } from "@/apps/game/components/modal/modal";
 import { useApp } from "@/apps/game/context/AppContext";
 import { ApplicationEnvironment } from "@/apps/game/KotOR";
 import GrantAccessModalContent from "@/apps/common/components/grantAccess/GrantAccessModalContent";
+import * as KotOR from "@/apps/game/KotOR";
 
 export const ModalGrantAccess = () => {
   const appContext = useApp();
@@ -10,13 +11,14 @@ export const ModalGrantAccess = () => {
   const [gameKey] = appContext.gameKey;
 
   const onCancel = (e: React.MouseEvent<HTMLButtonElement>) => {
+    KotOR.EventManager.FireEvent('grant-access.cancel');
     console.log("File System: access denied");
     alert("You must grant access to your local game directory to continue.");
     window.close();
   }
   
   const showBrowserDirectoryPicker = async () => {
-    let handle = await window.showDirectoryPicker({
+    const handle = await window.showDirectoryPicker({
       mode: "readwrite"
     });
     if(!handle) return;
@@ -25,6 +27,7 @@ export const ModalGrantAccess = () => {
       return;
     }
 
+    KotOR.EventManager.FireEvent('grant-access.grant');
     return handle;
   }
 

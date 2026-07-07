@@ -31,3 +31,4 @@ export * from "@/managers/PazaakManager";
 export * from "@/managers/UINotificationManager";
 export * from "@/managers/CutsceneManager";
 export * from "@/managers/LegalScreenManager";
+export * from "@/managers/EventManager";

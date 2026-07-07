@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { KotORModal } from "@/apps/game/components/modal/modal";
 import { useApp } from "@/apps/game/context/AppContext";
 import "@/apps/game/components/modal-click-to-begin/modalClickToBegin.scss";
+import * as KotOR from "@/apps/game/KotOR";
 
 const HELP_MESSAGE =
   "Modern browsers block audio and video from starting until you interact with the page. " +
@@ -21,11 +22,13 @@ export const ModalClickToBegin = () => {
   }, [showClickToBeginModal]);
 
   const onOk = async () => {
+    KotOR.EventManager.FireEvent('click-to-begin.begin');
     setShowClickToBeginModal(false);
     await appState.beginAfterAudioUnlock();
   };
 
   const toggleHelp = () => {
+    KotOR.EventManager.FireEvent('click-to-begin.toggle-help');
     setShowHelp((visible) => !visible);
   };
 

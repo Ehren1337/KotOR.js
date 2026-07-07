@@ -87,4 +87,17 @@ export class EventListener {
       console.warn('Event Listener: Unsupported', type);
     }
   }
+
+  /**
+   * Clear event listeners
+   * @param type
+   */
+  clearEventListeners<T extends string>(type?: T): void {
+    if(type !== undefined){
+      delete this.#eventListeners[type];
+      return;
+    }
+
+    this.#eventListeners = {};
+  }
 }

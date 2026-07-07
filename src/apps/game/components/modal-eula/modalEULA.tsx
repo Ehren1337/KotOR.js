@@ -2,6 +2,8 @@ import React from "react";
 import { KotORModal } from "@/apps/game/components/modal/modal";
 import { useApp } from "@/apps/game/context/AppContext";
 import { EULA_VERSION, EULA } from "@/apps/game/eula";
+import * as KotOR from "@/apps/game/KotOR";
+
 export const ModalEULA = () => {
   const appContext = useApp();
   const [appState] = appContext.appState;
@@ -9,11 +11,13 @@ export const ModalEULA = () => {
   const [showEULAModal] = appContext.showEULAModal;
 
   const onCancel = () => {
+    KotOR.EventManager.FireEvent('eula.cancel');
     alert('You must accept the Usage Notice to play this game. We are sorry to see you go.');
     window.close();
   }
 
   const onOk = () => {
+    KotOR.EventManager.FireEvent('eula.accept');
     console.log("onOk");
     const gameEULAConfig = {
       key: gameKey,

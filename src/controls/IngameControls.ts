@@ -19,6 +19,7 @@ import { AnalogInput } from "@/controls/AnalogInput";
 import { TGAObject } from "@/resource/TGAObject";
 import { GameFileSystem } from "@/utility/GameFileSystem";
 import { TURN_SPEED_FAST } from "@/engine/TurnSpeeds";
+import { EventManager } from "@/managers/EventManager";
 
 /**
  * IngameControls class.
@@ -315,6 +316,10 @@ export class IngameControls {
                   control.processEventListener('click', [customEvent]);
                   GameState.guiAudioEmitter.playSoundFireAndForget('gui_click');
                   Mouse.leftClick = false;
+                  EventManager.FireEvent('menu.click', {
+                    name: control.name,
+                    menu: control.menu.constructor.name
+                  });
                 }catch(e){
                   console.error(e);
                 }

@@ -3,7 +3,7 @@ import {
   AppearanceManager, AutoPauseManager, TLKManager, CharGenManager, CheatConsoleManager, CameraShakeManager, ConfigManager, CursorManager, DialogMessageManager,
   FadeOverlayManager, FeedbackMessageManager, GlobalVariableManager, InventoryManager, JournalManager, LightManager, MenuManager, ModuleObjectManager, PartyManager,
   ResolutionManager, ShaderManager, TwoDAManager, FactionManager,
-  VideoEffectManager, VideoManager, PazaakManager, UINotificationManager, CutsceneManager, LegalScreenManager
+  VideoEffectManager, VideoManager, PazaakManager, UINotificationManager, CutsceneManager, LegalScreenManager, EventManager
 } from "@/managers";
 
 import type { SWRuleSet } from "@/engine/rules/SWRuleSet";
@@ -964,6 +964,16 @@ export class GameState implements EngineContext {
       if(GameState.loadingModule){
         return;
       }
+      EventManager.FireEvent('module.load', {
+        name: name,
+        waypoint: waypoint?.toString(),
+        sMovie1: sMovie1,
+        sMovie2: sMovie2,
+        sMovie3: sMovie3,
+        sMovie4: sMovie4,
+        sMovie5: sMovie5,
+        sMovie6: sMovie6
+      });
       GameState.loadingModule = true;
       await GameState.MenuManager.LoadScreen.setLoadBackground('load_'+name);
       GameState.FadeOverlayManager.FadeOut(0, 0, 0, 0);
@@ -1120,6 +1130,11 @@ export class GameState implements EngineContext {
   }
 
   static UnloadModule(){
+    if(GameState.module){
+      EventManager.FireEvent('module.unload', {
+        name: GameState.module.name
+      });
+    }
     GameState.MenuManager.ClearMenus();
     GameState.deltaTime = 0;
     // GameState.initTimers();
