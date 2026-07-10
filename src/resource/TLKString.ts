@@ -1,3 +1,5 @@
+import { TLKStringFlags } from "@/enums/resource/TLKStringFlags";
+
 /**
  * TLKString class.
  * 
@@ -20,12 +22,85 @@ export class TLKString {
     public Value: string = ''
   ) {}
 
+  hasTextPresent(): boolean {
+    return (this.flags & TLKStringFlags.TEXT_PRESENT) !== 0;
+  }
+
+  hasSoundPresent(): boolean {
+    return (this.flags & TLKStringFlags.SND_PRESENT) !== 0;
+  }
+
+  hasSoundLengthPresent(): boolean {
+    return (this.flags & TLKStringFlags.SNDLENGTH_PRESENT) !== 0;
+  }
+
+  /** Text exposed to the engine when TEXT_PRESENT is set; otherwise empty. */
+  getDisplayText(): string {
+    if (!this.hasTextPresent()) return '';
+    return (this.Value ?? '').replace(/\0[\s\S]*$/g, '');
+  }
+
+  /** SoundResRef exposed when SND_PRESENT is set; otherwise empty. */
+  getDisplaySoundResRef(): string {
+    if (!this.hasSoundPresent()) return '';
+    return String(this.SoundResRef ?? '').replace(/\0[\s\S]*$/g, '').trim();
+  }
+
+  /** SoundLength exposed when SNDLENGTH_PRESENT is set; otherwise 0. */
+  getDisplaySoundLength(): number {
+    if (!this.hasSoundLengthPresent()) return 0;
+    return this.SoundLength >>> 0;
+  }
+
+  setFlag(flag: TLKStringFlags, enabled: boolean): void {
+    if (enabled) {
+      this.flags |= flag;
+    } else {
+      this.flags &= ~flag;
+    }
+    this.flags >>>= 0;
+    this.applyFlagsToFields();
+  }
+
+  /** Clear fields that are not present per the current flag bits. */
+  applyFlagsToFields(): void {
+    if (!this.hasTextPresent()) {
+      this.Value = '';
+      this.StringLength = 0;
+    }
+    if (!this.hasSoundPresent()) {
+      this.SoundResRef = '';
+    }
+    if (!this.hasSoundLengthPresent()) {
+      this.SoundLength = 0;
+    }
+  }
+
+  /** Update TEXT_PRESENT / SND_PRESENT / SNDLENGTH_PRESENT from current field values. */
+  syncFlagsFromContent(): void {
+    const text = (this.Value ?? '').replace(/\0[\s\S]*$/g, '');
+    const sound = String(this.SoundResRef ?? '').replace(/\0[\s\S]*$/g, '').trim();
+
+    this.flags &= ~(TLKStringFlags.TEXT_PRESENT | TLKStringFlags.SND_PRESENT | TLKStringFlags.SNDLENGTH_PRESENT);
+    if (text.length > 0) {
+      this.flags |= TLKStringFlags.TEXT_PRESENT;
+    }
+    if (sound.length > 0) {
+      this.flags |= TLKStringFlags.SND_PRESENT;
+    }
+    if ((this.SoundLength >>> 0) > 0) {
+      this.flags |= TLKStringFlags.SNDLENGTH_PRESENT;
+    }
+    this.flags >>>= 0;
+  }
+
   ToDB() {
     return {
       flags: this.flags,
       SoundResRef: this.SoundResRef,
       VolumeVariance: this.VolumeVariance,
       PitchVariance: this.PitchVariance,
+      SoundLength: this.SoundLength,
       Value: this.Value.replace(/\0[\s\S]*$/g,'')
     };
   }
@@ -35,11 +110,28 @@ export class TLKString {
     this.SoundResRef = row.SoundResRef;
     this.VolumeVariance = row.VolumeVariance;
     this.PitchVariance = row.PitchVariance;
+    this.SoundLength = row.SoundLength ?? 0;
     this.Value = row.Value.replace(/\0[\s\S]*$/g,'');
+    this.applyFlagsToFields();
   }
 
   static FromDBObj(row: any) {
-    return new TLKString(row.flags, row.SoundResRef, row.VolumeVariance, row.PitchVariance, 0, row.Value.length, 0, row.Value);
+    const entry = new TLKString(
+      row.flags,
+      row.SoundResRef,
+      row.VolumeVariance,
+      row.PitchVariance,
+      0,
+      row.Value?.length ?? 0,
+      row.SoundLength ?? 0,
+      row.Value ?? '',
+    );
+    entry.applyFlagsToFields();
+    return entry;
+  }
+
+  static createEmpty(): TLKString {
+    return new TLKString(0, '', 0, 0, 0, 0, 0, '');
   }
 
 }

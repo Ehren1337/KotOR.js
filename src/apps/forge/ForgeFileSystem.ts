@@ -368,6 +368,7 @@ export const supportedFilePickerTypes: any[] = [
         ".rim",
         ".sav",
         ".ssf",
+        ".tlk",
         ".tga",
         ".tpc",
         ".utc",
@@ -576,6 +577,12 @@ export const supportedFilePickerTypes: any[] = [
     },
   },
   {
+    description: "Talk Table (TLK)",
+    accept: {
+      "application/octet-stream": [".tlk"],
+    },
+  },
+  {
     description: "GUI File",
     accept: {
       "application/octet-stream": [".gui"],
@@ -601,7 +608,7 @@ export const supportedFileDialogTypes: any[] = [
     extensions: [
       '2da', 'are', 'bic', 'bik', 'dlg', 'dwk', 'erf', 'fac', 'git', 'gff', 'gui', 'ifo',
       'jpg', 'jpeg', 'jrl', 'lip', 'lyt', 'mdl', 'mdl.ascii', 'mdx', 'mod', 'mp3', 'ncs',
-      'nss', 'phn', 'png', 'pth', 'pwk', 'res', 'rim', 'sav', 'ssf', 'tga', 'tpc', 'txi',
+      'nss', 'phn', 'png', 'pth', 'pwk', 'res', 'rim', 'sav', 'ssf', 'tlk', 'tga', 'tpc', 'txi',
       'txt', 'utc', 'utd', 'ute', 'uti', 'utm', 'utp', 'uts', 'utt', 'utw', 'vis', 'wav',
       'wok',
     ],
@@ -637,6 +644,7 @@ export const supportedFileDialogTypes: any[] = [
   {name: 'Texture Info (TXI)', extensions: ['txi']},
   {name: 'Plain Text', extensions: ['txt']},
   {name: 'Sound Set (SSF)', extensions: ['ssf']},
+  {name: 'Talk Table (TLK)', extensions: ['tlk']},
   {name: 'GUI File', extensions: ['gui']},
   {name: 'Layout File', extensions: ['lyt']},
   {name: '2D Array File', extensions: ['2da']},

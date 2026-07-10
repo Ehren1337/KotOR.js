@@ -7,15 +7,16 @@
 export function normalizeSoundResRef(raw: unknown): string {
   if (raw == null) return "";
   if (typeof raw === "string") {
-    return raw.replace(/\0[\s\S]*$/g, "").trim();
+    return raw.replace(/\0[\s\S]*$/g, "").trim().toLowerCase();
   }
   if (Array.isArray(raw)) {
     const s = raw
       .map((c) => (typeof c === "string" ? c : String.fromCharCode(Number(c) & 0xff)))
       .join("");
-    return s.replace(/\0[\s\S]*$/g, "").trim();
+    return s.replace(/\0[\s\S]*$/g, "").trim().toLowerCase();
   }
   return String(raw)
     .replace(/\0[\s\S]*$/g, "")
-    .trim();
+    .trim()
+    .toLowerCase();
 }

@@ -55,6 +55,8 @@ export class TabResourceExplorerState extends TabState {
   }
 
   static async GenerateResourceList( state: TabResourceExplorerState ){
+    TabResourceExplorerState.Resources.length = 0;
+
     ForgeState.loaderMessage('Loading [BIFs]...');
     const bifs      = await TabResourceExplorerState.LoadBifs();
     ForgeState.loaderMessage('Loading [RIMs]...');
@@ -65,6 +67,8 @@ export class TabResourceExplorerState extends TabState {
     const lips      = await TabResourceExplorerState.LoadLips();
     ForgeState.loaderMessage('Loading [Textures]...');
     const textures  = await TabResourceExplorerState.LoadTextures();
+    ForgeState.loaderMessage('Loading [Talk Tables]...');
+    const talkTables = await TabResourceExplorerState.LoadTalkTables();
     ForgeState.loaderMessage('Loading [StreamWaves]...');
     const waves     = await TabResourceExplorerState.LoadFolderForFileBrowser('StreamWaves');   //KOTOR
     ForgeState.loaderMessage('Loading [StreamSounds]...');
@@ -89,14 +93,32 @@ export class TabResourceExplorerState extends TabState {
     // voice.sort();
 
     TabResourceExplorerState.Resources.push( 
+      ...talkTables,
       ...[
         bifs, rims, modules, lips, textures, waves, sounds, music, voice, override
         , saves
-      ].filter((node: FileBrowserNode) => (node instanceof FileBrowserNode && node.nodes.length)) 
+      ].filter((node: FileBrowserNode) => (node instanceof FileBrowserNode && node.nodes.length)),
     );
     state.reload();
     ForgeState.loaderHide();
     return TabResourceExplorerState.Resources;
+  }
+
+  static async LoadTalkTables(): Promise<FileBrowserNode[]> {
+    try {
+      if (await KotOR.GameFileSystem.exists('dialog.tlk')) {
+        return [
+          new FileBrowserNode({
+            name: 'dialog.tlk',
+            type: 'resource',
+            data: { path: EditorFile.referenceURIForGameRelative('dialog.tlk') },
+          }),
+        ];
+      }
+    } catch {
+      // dialog.tlk is optional if the game folder is incomplete.
+    }
+    return [];
   }
 
   static LoadBifs() {

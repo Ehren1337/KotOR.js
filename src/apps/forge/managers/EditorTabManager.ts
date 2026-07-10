@@ -3,7 +3,7 @@ import { EventListenerModel } from "@/apps/forge/EventListenerModel";
 import { TabStoreState } from "@/apps/forge/interfaces/TabStoreState";
 import { 
   TabBIKPlayerState, TabGFFEditorState, TabHexEditorState, TabImageViewerState, TabModelViewerState, 
-  TabModuleEditorState, TabQuickStartState, TabSSFEditorState, TabTwoDAEditorState, 
+  TabModuleEditorState, TabQuickStartState, TabSSFEditorState, TabTLKEditorState, TabTwoDAEditorState, 
   TabUTCEditorState, TabUTDEditorState, TabUTPEditorState, TabState
 } from "@/apps/forge/states/tabs";
 
@@ -158,6 +158,15 @@ export class EditorTabManager extends EventListenerModel {
     }
   }
 
+  /** Remove every tab without firing tab lifecycle events (used during app re-init / HMR). */
+  clearAllTabs(){
+    for(let i = this.tabs.length - 1; i >= 0; i--){
+      this.tabs[i].destroy();
+    }
+    this.tabs.length = 0;
+    this.currentTab = undefined;
+  }
+
   restoreTabState(tabState: TabStoreState) {
     if(tabState.file){
       tabState.file = EditorFile.revive(tabState.file as Partial<EditorFile>);
@@ -197,6 +206,11 @@ export class EditorTabManager extends EventListenerModel {
       case 'TabSSFEditorState':
         this.addTab(
           new TabSSFEditorState({editorFile: tabState.file})
+        );
+      break;
+      case 'TabTLKEditorState':
+        this.addTab(
+          new TabTLKEditorState({editorFile: tabState.file})
         );
       break;
       case 'TabHexEditorState':

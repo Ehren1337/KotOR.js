@@ -44,7 +44,7 @@ export class TabSSFEditorState extends TabState {
     const strRef = this.ssfObject.getStrRef(slot);
     const tlk = KotOR.TLKManager.TLKStrings[strRef];
     if (!tlk) return "";
-    return normalizeSoundResRef(tlk.SoundResRef);
+    return normalizeSoundResRef(tlk.getDisplaySoundResRef());
   }
 
   /** TLK body text for this slot when the talk table is loaded. */
@@ -54,7 +54,7 @@ export class TabSSFEditorState extends TabState {
     }
     const strRef = this.ssfObject.getStrRef(slot);
     const tlk = KotOR.TLKManager.TLKStrings[strRef];
-    return tlk?.Value ?? "";
+    return tlk?.getDisplayText() ?? "";
   }
 
   protected captureUndoState(): SSFUndoSnapshot | undefined {

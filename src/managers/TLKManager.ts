@@ -17,6 +17,56 @@ export interface TLKSearchResult {
 }
 
 /**
+ * Search a talk-table string array.
+ *
+ * - Numeric-only query returns the entry at that string ID directly.
+ * - Otherwise performs a linear text scan with optional case folding and limit.
+ */
+export function searchTLKStrings(
+  strings: TLKString[],
+  query: string,
+  options: TLKSearchOptions = {},
+): TLKSearchResult[] {
+  const {
+    caseInsensitive = true,
+    limit,
+    includeResRef = false,
+  } = options;
+
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  if (/^\d+$/.test(trimmed)) {
+    const id = parseInt(trimmed, 10);
+    const entry = strings[id];
+    if (entry) {
+      return [{ index: id, text: entry.getDisplayText() }];
+    }
+    return [];
+  }
+
+  const needle = caseInsensitive ? trimmed.toLowerCase() : trimmed;
+  const results: TLKSearchResult[] = [];
+
+  for (let i = 0, len = strings.length; i < len; i++) {
+    const entry = strings[i];
+    const displayText = entry.getDisplayText();
+    const haystack = caseInsensitive ? displayText.toLowerCase() : displayText;
+    const soundResRef = entry.getDisplaySoundResRef();
+    const resRefMatch = includeResRef && soundResRef
+      ? (caseInsensitive ? soundResRef.toLowerCase() : soundResRef).indexOf(needle) >= 0
+      : false;
+
+    if (haystack.indexOf(needle) >= 0 || resRefMatch) {
+      results.push({ index: i, text: displayText });
+      if (limit !== undefined && results.length >= limit) break;
+    }
+  }
+
+  return results;
+}
+
+/**
  * TLKManager class.
  * 
  * KotOR JS - A remake of the Odyssey Game Engine that powered KotOR I & II
@@ -54,40 +104,7 @@ export class TLKManager {
    * @param options    Search options (see TLKSearchOptions).
    */
   static Search(query: string, options: TLKSearchOptions = {}): TLKSearchResult[] {
-    const {
-      caseInsensitive = true,
-      limit,
-      includeResRef = false,
-    } = options;
-
-    const trimmed = query.trim();
-    if(!trimmed) return [];
-
-    // Numeric-only query → direct string-ID lookup (instant, no scan)
-    if(/^\d+$/.test(trimmed)){
-      const id = parseInt(trimmed, 10);
-      const entry = TLKManager.TLKStrings[id];
-      if(entry){ return [{ index: id, text: entry.Value }]; }
-      return [];
-    }
-
-    const needle = caseInsensitive ? trimmed.toLowerCase() : trimmed;
-    const results: TLKSearchResult[] = [];
-
-    for(let i = 0, len = TLKManager.TLKStrings.length; i < len; i++){
-      const entry = TLKManager.TLKStrings[i];
-      const haystack = caseInsensitive ? entry.Value.toLowerCase() : entry.Value;
-      const resRefMatch = includeResRef && entry.SoundResRef
-        ? (caseInsensitive ? entry.SoundResRef.toLowerCase() : entry.SoundResRef).indexOf(needle) >= 0
-        : false;
-
-      if(haystack.indexOf(needle) >= 0 || resRefMatch){
-        results.push({ index: i, text: entry.Value });
-        if(limit !== undefined && results.length >= limit) break;
-      }
-    }
-
-    return results;
+    return searchTLKStrings(TLKManager.TLKStrings, query, options);
   }
 
 }

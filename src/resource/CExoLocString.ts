@@ -46,7 +46,7 @@ export class CExoLocString {
   }
 
   getTLKValue(): string {
-    return TLKManager.GetStringById(this.RESREF).Value;
+    return TLKManager.GetStringById(this.RESREF).getDisplayText();
   }
 
   getRESREF() {
@@ -62,7 +62,7 @@ export class CExoLocString {
       return this.strings[0].str;
     }else{
       if(this.RESREF > -1)
-        return TLKManager.TLKStrings[this.RESREF].Value;
+        return TLKManager.TLKStrings[this.RESREF]?.getDisplayText() ?? '';
       else
         return '';
     }

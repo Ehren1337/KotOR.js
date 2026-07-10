@@ -34,6 +34,10 @@ export class ForgeState {
   static recentFiles: EditorFile[] = [];
   static recentProjects: RecentProject[] = [];
 
+  static #persistOpenTabs = (): void => {
+    ForgeState.saveOpenTabsState();
+  };
+
   static #eventListeners: any = {};
 
   static nwscript_nss: Uint8Array;
@@ -178,6 +182,9 @@ export class ForgeState {
         
         this.processEventListener('onRecentProjectsUpdated', []);
         this.processEventListener('onRecentFilesUpdated', []);
+
+        ForgeState.tabManager.clearAllTabs();
+        ForgeState.explorerTabManager.clearAllTabs();
         
         const tabStates: TabStoreState[] = KotOR.ConfigClient.get('open_tabs', []);
         if(tabStates.length){
@@ -189,16 +196,13 @@ export class ForgeState {
           ForgeState.tabManager.addTab(new TabQuickStartState());
         }
 
-        ForgeState.tabManager.addEventListener('onTabAdded', () => {
-          ForgeState.saveOpenTabsState();
-        });
-
-        ForgeState.tabManager.addEventListener('onTabRemoved', () => {
-          ForgeState.saveOpenTabsState();
-        });
-        ForgeState.tabManager.addEventListener('onTabsReordered', () => {
-          ForgeState.saveOpenTabsState();
-        });
+        const persistOpenTabs = ForgeState.#persistOpenTabs;
+        ForgeState.tabManager.removeEventListener('onTabAdded', persistOpenTabs);
+        ForgeState.tabManager.removeEventListener('onTabRemoved', persistOpenTabs);
+        ForgeState.tabManager.removeEventListener('onTabsReordered', persistOpenTabs);
+        ForgeState.tabManager.addEventListener('onTabAdded', persistOpenTabs);
+        ForgeState.tabManager.addEventListener('onTabRemoved', persistOpenTabs);
+        ForgeState.tabManager.addEventListener('onTabsReordered', persistOpenTabs);
 
         // Tabs restored or default quick start are added before listeners exist; persist once so
         // open_tabs (including Start Page) matches the real tab strip after load.
