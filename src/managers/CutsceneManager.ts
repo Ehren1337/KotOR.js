@@ -92,7 +92,6 @@ export class CutsceneManager {
     }
     this.unequipHeadItem = false;
     this.unequipItems = false;
-    GameState.SetEngineMode(EngineMode.DIALOG);
     this.isListening = true;
     this.startingEntry = null;
     this.currentEntry = null;
@@ -127,6 +126,7 @@ export class CutsceneManager {
     if (isBarkDialog) {
       this.dialog.loadBackgroundMusic()
       this.cutsceneMode = CutsceneMode.BARK;
+      this.startingEntry.initProperties();
       GameState.MenuManager.InGameBark.bark(this.startingEntry);
       this.startingEntry.runScripts();
       const reply = this.dialog.getReplyByIndex(this.startingEntry.replies[0]?.index);
@@ -136,6 +136,8 @@ export class CutsceneManager {
       this.endConversation();
       return;
     }
+    
+    GameState.SetEngineMode(EngineMode.DIALOG);
     
     //normal dialog entry
     this.cutsceneMode = (this.dialog.isAnimatedCutscene) ? CutsceneMode.ANIMATED : CutsceneMode.DIALOG;
@@ -411,17 +413,20 @@ export class CutsceneManager {
    * @param aborted - Whether the conversation was aborted
    */
   static endConversation(aborted = false) {
+    const wasBark = this.cutsceneMode == CutsceneMode.BARK;
     this.active = false;
     if (this.paused) {
       this.ended = true;
     }
-    this.audioEmitter.stop();
-    if(this.dialog?.getConversationType() == DLGConversationType.COMPUTER){
-      GameState.MenuManager.InGameComputer.close();
-      // GameState.MenuManager.InGameComputerCam.close();
-      GameState.MenuManager.InGameComputerCam.hide();
-    }else{
-      GameState.MenuManager.InGameDialog.close();
+    if(!wasBark){
+      this.audioEmitter.stop();
+      if(this.dialog?.getConversationType() == DLGConversationType.COMPUTER){
+        GameState.MenuManager.InGameComputer.close();
+        // GameState.MenuManager.InGameComputerCam.close();
+        GameState.MenuManager.InGameComputerCam.hide();
+      }else{
+        GameState.MenuManager.InGameDialog.close();
+      }
     }
     GameState.currentCamera = GameState.camera;
     this.state = ConversationState.INVALID;
@@ -447,8 +452,13 @@ export class CutsceneManager {
     }
 
     this.dialog = undefined;
+    this.cutsceneMode = CutsceneMode.DIALOG;
     GameState.VideoEffectManager.SetVideoEffect(-1);
     AudioEngine.GetAudioEngine().dialogMusicAudioEmitter.stop();
+
+    if(wasBark){
+      GameState.RestoreEnginePlayMode();
+    }
   }
 
   /**

@@ -1110,7 +1110,7 @@ export class GameState implements EngineContext {
 
     if(mode != EngineMode.INGAME){
       if(GameState.MenuManager.InGameBark)
-        GameState.MenuManager.InGameBark.hide();
+        GameState.MenuManager.InGameBark.close();
   
       if(GameState.MenuManager.InGameAreaTransition)
         GameState.MenuManager.InGameAreaTransition.hide();
@@ -1338,6 +1338,9 @@ export class GameState implements EngineContext {
     }
     GameState.module.tick(delta);
     GameState.CutsceneManager.update(delta);
+    if(GameState.MenuManager.InGameBark?.bVisible){
+      GameState.MenuManager.InGameBark.update(delta);
+    }
     GameState.FadeOverlayManager.Update(delta);
     GameState.frustumMat4.multiplyMatrices( GameState.currentCamera.projectionMatrix, GameState.currentCamera.matrixWorldInverse )
     GameState.viewportFrustum.setFromProjectionMatrix(GameState.frustumMat4);

@@ -2,12 +2,8 @@ import { EngineMode } from "@/enums/engine/EngineMode";
 import { GameMenu } from "@/gui";
 import type { GUILabel } from "@/gui";
 import * as THREE from "three";
-import { ResourceLoader } from "@/loaders";
-import { ResourceTypes } from "@/resource/ResourceTypes";
-import { LIPObject } from "@/resource/LIPObject";
 import { GameState } from "@/GameState";
-import { DLGNodeType, ModuleObjectType } from "@/enums";
-import { BitWise } from "@/utility/BitWise";
+import { DLGNodeType } from "@/enums";
 import { DLGNode } from "@/resource/DLGNode";
 
 /**
@@ -31,6 +27,7 @@ export class InGameBark extends GameMenu {
   bAudioPlayed: boolean = false;
 
   audioNode: AudioBufferSourceNode;
+  currentEntry: DLGNode;
 
   constructor(){
     super();
@@ -54,7 +51,7 @@ export class InGameBark extends GameMenu {
     });
   }
   
-  bark(entry: any) {
+  bark(entry: DLGNode) {
 
     const outText = this.gameStringParse(entry.text);
     console.log('bark', entry, outText);
@@ -63,11 +60,26 @@ export class InGameBark extends GameMenu {
       return;
     }
 
+    this.resetCurrentEntryLIP();
+
     //reset the last audioNode
     if(this.audioNode){
       this.audioNode.onended = undefined;
+      try {
+        this.audioNode.stop(0);
+      } catch {
+        // Source may already be stopped.
+      }
+      this.audioNode = undefined;
     }
 
+    if(entry.dialog){
+      entry.initProperties();
+    }
+    this.currentEntry = entry;
+
+    this.bHasAudio = false;
+    this.bAudioPlayed = false;
     this.barkTimer = InGameBark.BARK_TIMER;
     this.show();
     this.LBL_BARKTEXT.setText(entry.text);
@@ -83,11 +95,7 @@ export class InGameBark extends GameMenu {
       this.bHasAudio = true;
       this.bAudioPlayed = false;
       console.log('lip', entry.getVoiceResRef());
-      LIPObject.Load(entry.getVoiceResRef()).then((lip: LIPObject) => {
-        if (BitWise.InstanceOfObject(entry.speaker, ModuleObjectType.ModuleCreature)) {
-          entry.speaker.setLIP(lip);
-        }
-      });
+      void entry.loadLIP();
       GameState.CutsceneManager.audioEmitter.playStreamWave(entry.getVoiceResRef()).then((audioNode) => {
         this.audioNode = audioNode;
         this.bHasAudio = true;
@@ -101,7 +109,6 @@ export class InGameBark extends GameMenu {
     } else {
       this.bAudioPlayed = true;
       this.bHasAudio = false;
-      console.error('VO ERROR', entry);
     }
   }
 
@@ -143,6 +150,17 @@ export class InGameBark extends GameMenu {
     if(this.audioNode){
       this.audioNode.onended = undefined;
       this.audioNode = undefined;
+    }
+    this.resetCurrentEntryLIP();
+    this.currentEntry = undefined;
+    this.bHasAudio = false;
+    this.bAudioPlayed = false;
+    this.barkTimer = 0;
+  }
+
+  resetCurrentEntryLIP(){
+    if(typeof this.currentEntry?.resetLIP === 'function'){
+      this.currentEntry.resetLIP();
     }
   }
   
