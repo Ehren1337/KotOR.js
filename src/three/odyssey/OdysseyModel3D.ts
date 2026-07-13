@@ -23,6 +23,12 @@ import { type OdysseyModelChangeEvent } from "@/odyssey/OdysseyModel";
 import { type OdysseyModelNodeMesh } from "@/odyssey/OdysseyModelNodeMesh";
 import { type OdysseyModelNodeDangly } from "@/odyssey/OdysseyModelNodeDangly";
 import { ensureDanglyConstraintAttribute } from "@/odyssey/ensureDanglyVertexAttributes";
+import {
+  initDanglyWindMesh,
+  initMergedDanglyWindMesh,
+  type DanglyGroupParams,
+  updateModelDanglyWind,
+} from "@/odyssey/DanglyWindSimulator";
 import { type OdysseyModelNodeSkin } from "@/odyssey/OdysseyModelNodeSkin";
 import { type OdysseyModelNodeAABB } from "@/odyssey/OdysseyModelNodeAABB";
 import { type OdysseyModelNodeSaber } from "@/odyssey/OdysseyModelNodeSaber";
@@ -31,11 +37,12 @@ import { OdysseyObject3D } from "@/three/odyssey/OdysseyObject3D";
 import { OdysseyEmitter3D } from "@/three/odyssey/OdysseyEmitter3D";
 import { OdysseyLight3D } from "@/three/odyssey/OdysseyLight3D";
 import { type IGameContext } from "@/interface/engine/IGameContext";
-import { resolveDanglyWindPower } from "@/three/odyssey/windPowerContext";
+import { WindManager } from "@/managers/WindManager";
+import { GameState } from "@/GameState";
 import { createNodeParseContext, type NodeParseContext } from "@/three/odyssey/OdysseyModel3DNodeParseContext";
 import { parseOdysseyNode } from "@/three/odyssey/OdysseyModel3DNodeParser";
 
-export { resolveDanglyWindPower };
+export { resolveDanglyWindPower } from "@/three/odyssey/windPowerContext";
 export type { NodeParseContext, NodeParseFlags, OdysseyModel3DParseBuilders } from "@/three/odyssey/OdysseyModel3DNodeParseContext";
 export { createNodeParseContext } from "@/three/odyssey/OdysseyModel3DNodeParseContext";
 export { parseOdysseyNode } from "@/three/odyssey/OdysseyModel3DNodeParser";
@@ -45,12 +52,6 @@ function odysseyOnBeforeCompile(this: THREE.ShaderMaterial, shader: any) {
   const numAnimatedLights = (lightCount || 0).toString();
   shader.vertexShader = shader.vertexShader.replace( /NUM_ANIM_POINT_LIGHTS/g, numAnimatedLights.toString() );
   shader.fragmentShader = (numAnimatedLights > 0 ? `#define NUM_ANIM_POINT_LIGHTS ${numAnimatedLights}\n #define USE_ANIMATED_LIGHTS\n` : '') + shader.fragmentShader.replace( /NUM_ANIM_POINT_LIGHTS/g, numAnimatedLights.toString() );
-}
-
-function applyDanglyWindPowerUniform(material: THREE.Material, wind: number): void {
-  if (!(material instanceof THREE.ShaderMaterial)) return;
-  const u = material.uniforms?.danglyWindPower;
-  if (u) u.value = wind;
 }
 
 /**
@@ -162,6 +163,8 @@ export class OdysseyModel3D extends OdysseyObject3D {
   mergedMesh: THREE.Mesh;
   mergedBufferDanglyGeometry: THREE.BufferGeometry;
   mergedDanglyMesh: THREE.Mesh;
+  mergedDanglyGroups: DanglyGroupParams[];
+  mergedDanglyVertexOffset: number;
   walkmesh: THREE.Mesh;
   wok: OdysseyWalkMesh;
   animLoops: OdysseyModelAnimation[] = [];
@@ -570,7 +573,6 @@ export class OdysseyModel3D extends OdysseyObject3D {
 
     this.animationManager.update(delta);
 
-    const danglyWind = resolveDanglyWindPower(this.context);
     const dt =
       delta > 0 ? delta : (this.context?.deltaTime ?? 0);
     // Odyssey vertex shaders use `time` in sin() for dangly, animated effects, etc. — must accumulate (seconds), not reset to delta each frame.
@@ -580,22 +582,8 @@ export class OdysseyModel3D extends OdysseyObject3D {
         if(material.type == 'ShaderMaterial'){
           material.uniforms.time.value += dt;
         }
-        applyDanglyWindPowerUniform(material, danglyWind);
       }
     }
-    if(this.mergedDanglyMesh){
-      const mm = this.mergedDanglyMesh.material;
-      if(Array.isArray(mm)){
-        for(let m = 0; m < mm.length; m++){
-          applyDanglyWindPowerUniform(mm[m], danglyWind);
-        }
-      }else if(mm){
-        applyDanglyWindPowerUniform(mm, danglyWind);
-      }
-    }
-    
-    //Update wind impulses (once per model update; expired impulses are removed)
-    OdysseyEmitter3D.updateWindImpulses(delta);
 
     //Update emitters
     for(let i = 0; i < this.emitters.length; i++){
@@ -606,6 +594,8 @@ export class OdysseyModel3D extends OdysseyObject3D {
     for(let i = 0; i < this.childModels.length; i++){
       this.childModels[i].update(delta);
     }
+
+    updateModelDanglyWind(this, GameState.windManager, dt);
 
     this.oddFrame = !this.oddFrame;
 
@@ -1098,6 +1088,8 @@ export class OdysseyModel3D extends OdysseyObject3D {
           odysseyModel.mergedDanglyGeometries = [];
           odysseyModel.mergedMaterials = [];
           odysseyModel.mergedDanglyMaterials = [];
+          odysseyModel.mergedDanglyGroups = [];
+          odysseyModel.mergedDanglyVertexOffset = 0;
           
           // Material-based geometry grouping for optimized merging
           odysseyModel.geometryGroupsByMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>();
@@ -1158,6 +1150,7 @@ export class OdysseyModel3D extends OdysseyObject3D {
             odysseyModel.mergedDanglyMesh = new THREE.Mesh(odysseyModel.mergedBufferDanglyGeometry, odysseyModel.mergedDanglyMaterials);
             //odysseyModel.mergedDanglyMesh.receiveShadow = true;
             odysseyModel.add(odysseyModel.mergedDanglyMesh);
+            initMergedDanglyWindMesh(odysseyModel.mergedDanglyMesh, odysseyModel.mergedDanglyGroups);
 
             for(let i = 0, len = odysseyModel.mergedDanglyGeometries.length; i < len; i++){
               odysseyModel.mergedDanglyGeometries[i].dispose();
@@ -1391,6 +1384,16 @@ export class OdysseyModel3D extends OdysseyObject3D {
             geometry.normalizeNormals();
 
             if((odysseyNode.nodeType & OdysseyModelNodeType.Dangly) == OdysseyModelNodeType.Dangly){
+              const danglyNode = odysseyNode as OdysseyModelNodeDangly;
+              const vertCount = geometry.getAttribute("position").count;
+              odysseyModel.mergedDanglyGroups.push({
+                vertexStart: odysseyModel.mergedDanglyVertexOffset,
+                vertexCount: vertCount,
+                displacement: danglyNode.danglyDisplacement,
+                tightness: danglyNode.danglyTightness,
+                period: danglyNode.danglyPeriod,
+              });
+              odysseyModel.mergedDanglyVertexOffset += vertCount;
               odysseyModel.mergedDanglyGeometries.push(geometry);
               odysseyModel.mergedDanglyMaterials.push(material);
             }else{
@@ -1413,6 +1416,10 @@ export class OdysseyModel3D extends OdysseyObject3D {
             mesh.userData.odysseyModelNode = odysseyNode;
             (parentNode as any).mesh = mesh as any;
             mesh.matrixAutoUpdate = true;
+            if ((odysseyNode.nodeType & OdysseyModelNodeType.Dangly) === OdysseyModelNodeType.Dangly) {
+              initDanglyWindMesh(mesh, odysseyNode as OdysseyModelNodeDangly);
+              odysseyModel.danglyMeshes.push(mesh);
+            }
             const isAabb = (odysseyNode.nodeType & OdysseyModelNodeType.AABB) === OdysseyModelNodeType.AABB;
             if(!isAabb || options.attachMdlAabbMesh){
               parentNode.add( mesh );
@@ -1562,10 +1569,9 @@ export class OdysseyModel3D extends OdysseyObject3D {
           material.uniforms.danglyDisplacement.value = node.danglyDisplacement;
           material.uniforms.danglyTightness.value = node.danglyTightness;
           material.uniforms.danglyPeriod.value = node.danglyPeriod;
-          if(material.uniforms.danglyWindPower){
-            material.uniforms.danglyWindPower.value = resolveDanglyWindPower(options.context);
-          }
+          WindManager.bindWindUniforms(material.uniforms);
           material.defines.DANGLY = '';
+          material.needsUpdate = true;
         }
 
         //Set animated uv uniforms

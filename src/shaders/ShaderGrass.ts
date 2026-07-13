@@ -22,7 +22,6 @@ export class ShaderGrass extends Shader {
         lightMap: { value: null },
         time: { value: 0 },
         ambientColor: { value: new THREE.Color() },
-        windPower: { value: 0 },
         planeHeightJitter: { value: 0.0 },
         playerPosition: { value: new THREE.Vector3() },
         alphaTest: { value: 1 },
@@ -44,8 +43,8 @@ export class ShaderGrass extends Shader {
     //time
     uniform float time;
 
-    //wind
-    uniform float windPower;
+    // Per-instance wind tip offset (CPU-integrated each frame)
+    attribute vec2 grassWindOffset;
     uniform float planeHeightJitter;
     attribute float constraint;
 
@@ -164,13 +163,14 @@ export class ShaderGrass extends Shader {
 
       mat3 rotationComponent = mat3(instanceMatrix);
 
-      //wind logic
-      float wind = constraint * windPower * ( cos(time + vInstanceID) * 0.1 );
-      vec3 windOffset = rotationComponent * vec3(cos(wind), sin(wind), 0.0);
-      transformed.xyz += windOffset;
+      // Grass tip displacement from CPU-integrated wind offset
+      if (constraint > 0.0) {
+        vec3 windOffset = rotationComponent * vec3(grassWindOffset.x, grassWindOffset.y, 0.0) * constraint;
+        transformed.xyz += windOffset;
+      }
 
-      // Calculate world position for both distance fade and trample effects
-      vec4 worldPosition = vec4( transformed, 1.0 );
+      // Calculate world position for distance fade and trample effects
+      vec4 worldPosition = vec4(transformed, 1.0);
       #ifdef USE_INSTANCING
         worldPosition = instanceMatrix * worldPosition;
       #endif

@@ -1,4 +1,5 @@
 import { GameState } from "@/GameState";
+import { WindManager } from "@/managers/WindManager";
 import { GFFObject } from "@/resource/GFFObject";
 import type { OdysseyFace3 } from "@/three/odyssey/OdysseyFace3";
 import { OdysseyModel3D } from "@/three/odyssey/OdysseyModel3D";
@@ -568,6 +569,38 @@ export class ModuleArea extends ModuleObject {
     this.updateMusic(delta);
   }
 
+  applyAreaWind(): void {
+    const effectiveWind = (this.flags & 1) ? 0 : this.windPower;
+    if (GameState.windManager) {
+      GameState.windManager.applyWindLevel(effectiveWind);
+    }
+  }
+
+  /**
+   * Push wind grid uniforms to grass and dangly materials that are not yet bound.
+   */
+  updateRoomWindUniforms(): void {
+    const wm = GameState.windManager;
+    if (!wm) return;
+
+    const rooms = this.rooms;
+    for (let i = 0, il = rooms.length; i < il; i++) {
+      const room = rooms[i];
+      if (!room.isVisible() || !room.model) continue;
+      if (!(room.model instanceof OdysseyModel3D)) continue;
+      WindManager.bindModelWindUniforms(room.model, wm.windCacheID);
+    }
+
+    const bindCreatureModel = (obj: { model?: unknown }) => {
+      if (obj?.model instanceof OdysseyModel3D) {
+        WindManager.bindModelWindUniforms(obj.model, wm.windCacheID);
+      }
+    };
+    for (let i = 0; i < this.creatures.length; i++) bindCreatureModel(this.creatures[i]);
+    for (let i = 0; i < this.placeables.length; i++) bindCreatureModel(this.placeables[i]);
+    for (let i = 0; i < this.doors.length; i++) bindCreatureModel(this.doors[i]);
+  }
+
   /**
    * Update room models width lightmaps to use animated lights
    * Animated lights are the only lights that can influence lightmapped surfaces
@@ -1000,6 +1033,7 @@ export class ModuleArea extends ModuleObject {
     this.unescapable = this.are.getFieldByLabel('Unescapable').getValue() ? true : false;
     this.version = this.are.getFieldByLabel('Version').getValue();
     this.windPower = this.are.getFieldByLabel('WindPower').getValue();
+    this.applyAreaWind();
 
     this.fog = undefined;
 

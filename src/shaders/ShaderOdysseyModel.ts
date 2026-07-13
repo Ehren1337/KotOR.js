@@ -490,10 +490,12 @@ export class ShaderOdysseyModel extends Shader {
   
     #ifdef DANGLY
       attribute vec4 constraint;
+      attribute vec3 danglyOffset;
       uniform float danglyDisplacement;
       uniform float danglyTightness;
       uniform float danglyPeriod;
-      uniform float danglyWindPower;
+      uniform float windDanglyElapsed;
+      uniform float danglyWindLevel;
     #endif
     #include <uv_pars_vertex>
     #include <uv2_pars_vertex>
@@ -584,7 +586,7 @@ export class ShaderOdysseyModel extends Shader {
       #endif
 
       #ifdef DANGLY
-        odyssey_apply_dangly_vertex(transformed, objectNormal);
+        odyssey_apply_dangly_vertex(transformed, objectNormal, modelMatrix);
       #endif
   
       #ifdef FORCE_SHIELD
@@ -620,7 +622,6 @@ export class ShaderOdysseyModel extends Shader {
       { danglyDisplacement: { value: 0 } },
       { danglyTightness: { value: 0 } },
       { danglyPeriod: { value: 0 } },
-      { danglyWindPower: { value: 1 } },
       { animPointLights: { value: [], properties: {
         color: {},
         position: {},

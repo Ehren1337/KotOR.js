@@ -3,8 +3,8 @@ import type { OdysseyModelNodeDangly } from "@/odyssey/OdysseyModelNodeDangly";
 
 /**
  * Compiled MDL fills `danglyVec4` in `readBinary`. ASCII imports only have `constraints`
- * weights; we build vec4 per vertex using normals as the sway axis so shaders still run.
- * Preserves existing .w when rebuilding a mismatched buffer if possible.
+ * weights; we build vec4 per vertex using normals as a placeholder axis (.xyz unused by
+ * the CPU dangly sim). Weight .w: 0 = pinned (skip sim), 255 = pinned (limit 0).
  */
 export function ensureDanglyConstraintAttribute(
   node: OdysseyModelNodeDangly,
@@ -28,6 +28,7 @@ export function ensureDanglyConstraintAttribute(
   const out: number[] = new Array(expected);
 
   for (let i = 0; i < n; i++) {
+    // w=0 skips sim (pinned anchor); prefer authored weights.
     let w = 255;
     if (node.danglyVec4 && node.danglyVec4.length >= (i + 1) * 4) {
       w = node.danglyVec4[i * 4 + 3];

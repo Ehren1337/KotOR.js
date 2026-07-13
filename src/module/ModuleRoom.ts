@@ -45,6 +45,13 @@ export class ModuleRoom extends ModuleObject {
   encounters: ModuleEncounter[] = [];
   sounds: ModuleSound[] = [];
   grass: THREE.InstancedMesh<THREE.BufferGeometry, THREE.ShaderMaterial>;
+  grassWindOffsets?: Float32Array;
+
+  private _grassWindMid = new THREE.Vector3();
+  private _grassWindMatrix = new THREE.Matrix4();
+  private _grassWindForce = new THREE.Vector3();
+  private _grassWindSample = new THREE.Vector3();
+  private _grassWindGust = new THREE.Vector3();
 
   linkedRoomData: IVISRoom[] = [];
   linkedRoomNames: string[] = [];
@@ -192,6 +199,8 @@ export class ModuleRoom extends ModuleObject {
       
       // Update entity positions in texture for multi-entity trample
       this.updatePositionDataTexture();
+
+      this.updateGrassForWind(delta);
       
       this.grass.material.uniformsNeedUpdate = true;
     }
@@ -428,7 +437,6 @@ export class ModuleRoom extends ModuleObject {
           maxEntities: { value: 64 },
           time: { value: 0 },
           ambientColor: { value: new THREE.Color().setHex(parseInt('0x'+(this.area.sun.fogColor).toString(16))) },
-          windPower: { value: this.area.windPower },
           planeHeightJitter: { value: 0.05 },
           playerPosition: { value: new THREE.Vector3 },
           alphaTest: { value: this.area.alphaTest },
@@ -456,6 +464,12 @@ export class ModuleRoom extends ModuleObject {
       // console.warn('ModuleRoom.buildGrass: No grass instances to create for room', this.roomName);
       return;
     }
+
+    this.grassWindOffsets = new Float32Array(totalGrassCount * 2);
+    geometry.setAttribute(
+      'grassWindOffset',
+      new THREE.InstancedBufferAttribute(this.grassWindOffsets, 2)
+    );
 
     this.grass = new THREE.InstancedMesh(geometry, grass_material, totalGrassCount);
     this.grass.frustumCulled = false;
@@ -715,6 +729,50 @@ export class ModuleRoom extends ModuleObject {
     }
     
     return { totalGrassCount, faceGrassCounts };
+  }
+
+  /**
+   * CPU-integrated tip displacement per grass blade.
+   */
+  private updateGrassForWind(delta: number = 0): void {
+    if (!this.grass || !this.grassWindOffsets) return;
+
+    const wm = GameState.windManager;
+    if (!wm) return;
+    if (wm.windLevel <= 0 && wm.pointSourceWinds.length === 0) return;
+
+    const dt = Math.min(delta, 0.1);
+    const quadSize = this.area.grass.quadSize > 0 ? this.area.grass.quadSize : 0.25;
+    const stiffness = 1.0;
+    const capScale = wm.getGlobalWindCapScale();
+    const offsets = this.grassWindOffsets;
+    const count = this.grass.count;
+
+    for (let i = 0; i < count; i++) {
+      this.grass.getMatrixAt(i, this._grassWindMatrix);
+      this._grassWindMid.setFromMatrixPosition(this._grassWindMatrix);
+
+      this._grassWindSample.copy(wm.getGlobalWindNoPoint(this._grassWindMid, 1.0)).multiplyScalar(capScale);
+      this._grassWindGust.copy(wm.getGlobalPointWind(this._grassWindMid));
+
+      const ox = offsets[i * 2];
+      const oy = offsets[i * 2 + 1];
+
+      // spring = bottom - top (XY); bottom at rest origin, tip offset stored in ox/oy
+      this._grassWindForce.set(
+        this._grassWindSample.x + this._grassWindGust.x - ox,
+        this._grassWindSample.y + this._grassWindGust.y - oy,
+        this._grassWindSample.z + this._grassWindGust.z
+      );
+
+      if (this._grassWindForce.x !== 0 || this._grassWindForce.y !== 0 || this._grassWindForce.z !== 0) {
+        offsets[i * 2] = ox + this._grassWindForce.x * stiffness * quadSize * dt;
+        offsets[i * 2 + 1] = oy + this._grassWindForce.y * stiffness * quadSize * dt;
+      }
+    }
+
+    const attr = this.grass.geometry.getAttribute('grassWindOffset');
+    if (attr) attr.needsUpdate = true;
   }
 
   /**

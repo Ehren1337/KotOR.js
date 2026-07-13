@@ -16,6 +16,7 @@ export * from "@/managers/InventoryManager";
 export * from "@/managers/JournalManager";
 export * from "@/managers/KEYManager";
 export * from "@/managers/LightManager";
+export * from "@/managers/WindManager";
 export * from "@/managers/MenuManager";
 export * from "@/managers/ModuleObjectManager";
 export * from "@/managers/PartyManager";

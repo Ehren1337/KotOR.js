@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {
   AppearanceManager, AutoPauseManager, TLKManager, CharGenManager, CheatConsoleManager, CameraShakeManager, ConfigManager, CursorManager, DialogMessageManager,
-  FadeOverlayManager, FeedbackMessageManager, GlobalVariableManager, InventoryManager, JournalManager, LightManager, MenuManager, ModuleObjectManager, PartyManager,
+  FadeOverlayManager, FeedbackMessageManager, GlobalVariableManager, InventoryManager, JournalManager, LightManager, WindManager, MenuManager, ModuleObjectManager, PartyManager,
   ResolutionManager, ShaderManager, TwoDAManager, FactionManager,
   VideoEffectManager, VideoManager, PazaakManager, UINotificationManager, CutsceneManager, LegalScreenManager, EventManager
 } from "@/managers";
@@ -106,6 +106,7 @@ export class GameState implements EngineContext {
   static InventoryManager: typeof InventoryManager;
   static JournalManager: typeof JournalManager;
   static LightManager: typeof LightManager;
+  static WindManager: typeof WindManager;
   static MenuManager: typeof MenuManager;
   static ModuleObjectManager: typeof ModuleObjectManager;
   static PartyManager: typeof PartyManager;
@@ -213,6 +214,7 @@ export class GameState implements EngineContext {
   static stats: Stats;
 
   static lightManager: LightManager;
+  static windManager: WindManager;
 
   static visible: boolean;
 
@@ -495,6 +497,8 @@ export class GameState implements EngineContext {
     });
 
     GameState.lightManager = new GameState.LightManager();
+    GameState.windManager = new GameState.WindManager();
+    WindManager.setInstance(GameState.windManager);
     GameState.processEventListener('init');
 
     GameState.VideoEffectManager.SetVideoEffect(-1);
@@ -771,6 +775,7 @@ export class GameState implements EngineContext {
        * Initialize the LightManager
        */
       GameState.lightManager.init(GameState);
+      GameState.windManager.init(GameState);
       GameState.lightManager.setLightHelpersVisible(ConfigClient.get('GameState.debug.light_helpers') ? true : false);
 
       //AudioEngine.Unmute()
@@ -1150,6 +1155,7 @@ export class GameState implements EngineContext {
     audioEngine.reset();
 
     GameState.lightManager.clearLights();
+    GameState.windManager.clear();
 
     GameState.CursorManager.selected = undefined;
     GameState.CursorManager.selectedObject = undefined;
@@ -1312,7 +1318,9 @@ export class GameState implements EngineContext {
     GameState.currentCameraPosition.set(0, 0, 0);
     GameState.currentCameraPosition.applyMatrix4(FollowerCamera.camera.matrix);
     GameState.lightManager.update(delta, GameState.getCurrentPlayer());
+    GameState.windManager.update(delta);
     GameState.module.area.updateRoomAnimatedLights(delta);
+    GameState.module.area.updateRoomWindUniforms();
     GameState.CameraShakeManager.update(delta, GameState.currentCamera);
     
     //Handle the visibility of the PAUSE overlay
@@ -1347,7 +1355,9 @@ export class GameState implements EngineContext {
     GameState.currentCameraPosition.set(0, 0, 0);
     GameState.currentCameraPosition.applyMatrix4(FollowerCamera.camera.matrix);
     GameState.lightManager.update(delta, GameState.currentCamera);
+    GameState.windManager.update(delta);
     GameState.module.area.updateRoomAnimatedLights(delta);
+    GameState.module.area.updateRoomWindUniforms();
     GameState.CameraShakeManager.update(delta, GameState.currentCamera);
     
     //Handle the visibility of the PAUSE overlay
@@ -1369,7 +1379,9 @@ export class GameState implements EngineContext {
     GameState.updateTime(delta);
     GameState.FadeOverlayManager.Update(delta);
     GameState.lightManager.update(delta, GameState.getCurrentPlayer());
+    GameState.windManager.update(delta);
     GameState.module.area.updateRoomAnimatedLights(delta);
+    GameState.module.area.updateRoomWindUniforms();
     GameState.CameraShakeManager.update(delta, GameState.currentCamera);
 
     //Handle the visibility of the PAUSE overlay
@@ -1404,7 +1416,9 @@ export class GameState implements EngineContext {
     GameState.updateTime(delta);
     GameState.FadeOverlayManager.Update(delta);
     GameState.lightManager.update(delta, GameState.getCurrentPlayer());
+    GameState.windManager.update(delta);
     GameState.module.area.updateRoomAnimatedLights(delta);
+    GameState.module.area.updateRoomWindUniforms();
     GameState.CameraShakeManager.update(delta, GameState.currentCamera);
   }
 

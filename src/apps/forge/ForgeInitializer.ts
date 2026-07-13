@@ -114,6 +114,7 @@ export class ForgeInitializer {
     KotOR.GameState.InventoryManager = KotOR.InventoryManager;
     KotOR.GameState.JournalManager = KotOR.JournalManager;
     KotOR.GameState.LightManager = KotOR.LightManager;
+    KotOR.GameState.WindManager = KotOR.WindManager;
     KotOR.GameState.MenuManager = KotOR.MenuManager;
     KotOR.GameState.ModuleObjectManager = KotOR.ModuleObjectManager;
     KotOR.GameState.PartyManager = KotOR.PartyManager;
