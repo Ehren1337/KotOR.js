@@ -440,7 +440,6 @@ export class ModuleRoom extends ModuleObject {
           planeHeightJitter: { value: 0.05 },
           playerPosition: { value: new THREE.Vector3 },
           alphaTest: { value: this.area.alphaTest },
-          probability: { value: grassProbability },
           // Fade distance uniforms
           fadeStartDistance: { value: 25.0 },
           fadeEndDistance: { value: 100.0 },
@@ -489,11 +488,13 @@ export class ModuleRoom extends ModuleObject {
 
     // Pre-allocate arrays
     const instanceIndices = new Float32Array(totalGrassCount);
+    const grassQuadIndices = new Float32Array(totalGrassCount);
     const lightmapUV = new Float32Array(totalGrassCount * 2);
     
-    // Initialize instance indices
+    // Initialize instance indices (also set per placed blade below)
     for(let i = 0; i < totalGrassCount; i++){
       instanceIndices[i] = i;
+      grassQuadIndices[i] = 0;
     }
 
     // Pre-cache model data for UV calculation
@@ -595,6 +596,9 @@ export class ModuleRoom extends ModuleObject {
           lightmapUV[(instanceIndex * 2) + 1] = uv.y; 
         }
 
+        instanceIndices[instanceIndex] = instanceIndex;
+        grassQuadIndices[instanceIndex] = this.pickGrassTextureQuad(grassProbability);
+
         this.grass.setMatrixAt(instanceIndex, objForMatrix.matrix);
         instanceIndex++;
       }
@@ -603,6 +607,7 @@ export class ModuleRoom extends ModuleObject {
     this.grass.count = instanceIndex;
     this.grass.instanceMatrix.needsUpdate = true;
     geometry.setAttribute('instanceID', new THREE.InstancedBufferAttribute(instanceIndices, 1));
+    geometry.setAttribute('grassQuad', new THREE.InstancedBufferAttribute(grassQuadIndices, 1));
     geometry.setAttribute('lightmapUV', new THREE.InstancedBufferAttribute(lightmapUV, 2));
 
     this.grass.position.copy(this.position).add(aabb.position);
@@ -660,6 +665,18 @@ export class ModuleRoom extends ModuleObject {
 
     // If authors use percentage values (e.g. 25,25,25,25), normalize to 1.0.
     probability.divideScalar(total);
+  }
+
+  /** Weighted random pick from a 2×2 grass texture atlas (LL, LR, UL, UR). */
+  private pickGrassTextureQuad(probability: THREE.Vector4): number {
+    const r = Math.random();
+    const t0 = probability.x;
+    const t1 = t0 + probability.y;
+    const t2 = t1 + probability.z;
+    if (r < t0) return 0;
+    if (r < t1) return 1;
+    if (r < t2) return 2;
+    return 3;
   }
 
   /**

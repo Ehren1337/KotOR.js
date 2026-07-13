@@ -48,9 +48,8 @@ export class ShaderGrass extends Shader {
     uniform float planeHeightJitter;
     attribute float constraint;
 
-    //grassUV
-    attribute vec4 grassUV;
-    uniform vec4 probability;
+    // Per-instance sprite sheet quadrant (0=LL, 1=LR, 2=UL, 3=UR)
+    attribute float grassQuad;
 
     attribute float quadIdx;
     varying vec4 vSpriteSheet;
@@ -77,22 +76,7 @@ export class ShaderGrass extends Shader {
 
     // Deterministic random from instanceID
     float rand01(float x) {
-      return fract(sin(x * 12345.6789) * 98765.4321);
-    }
-
-    float pickQuadrant(float instanceID, float quadIndex) {
-      // Per-plane variation: each crossed plane in an instance gets its own weighted pick.
-      float r = rand01((instanceID * 17.0) + (quadIndex * 101.0));
-
-      float t0 = probability.x;
-      float t1 = t0 + probability.y;
-      float t2 = t1 + probability.z;
-      // float t3 = t2 + probability.w;  // should be 1.0
-
-      if (r < t0) return 0.0;       // LL
-      else if (r < t1) return 1.0;  // LR
-      else if (r < t2) return 2.0;  // UL
-      else return 3.0;              // UR
+      return fract(sin(x * 12.9898) * 43758.5453);
     }
 
     void calculateMultiEntityTrample(vec3 worldPosition, out float totalTrampleEffect) {
@@ -136,7 +120,7 @@ export class ShaderGrass extends Shader {
       //uv (THREE.js)
       #include <uv_vertex>
 
-      float uvFrameIndex = pickQuadrant(vInstanceID, quadIdx);
+      float uvFrameIndex = grassQuad;
 
       //BEGIN: SpriteSheet Calculations
       float framesX = 2.0;
