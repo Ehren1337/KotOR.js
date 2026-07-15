@@ -22,4 +22,4 @@ extensions/
 .npm-cache/
 .vscode/mcp.json
 .vscode/chrome-debug-profile/
-agentdecompile_projects/
+exports/
