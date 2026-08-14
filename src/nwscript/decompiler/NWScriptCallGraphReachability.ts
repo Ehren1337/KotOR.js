@@ -2,6 +2,7 @@ import type { NWScriptControlFlowGraph } from "@/nwscript/decompiler/NWScriptCon
 import type { NWScriptBasicBlock } from "@/nwscript/decompiler/NWScriptBasicBlock";
 import type { NWScriptFunction } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
 import { OP_JSR } from "@/nwscript/NWScriptOPCodes";
+import { toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
 
 /**
  * JSR callee entry PCs reachable from a CFG start block (BFS over successors, mirroring
@@ -29,7 +30,7 @@ export function collectCalleeEntryPcsReachableFromBlock(
 
     for (const instr of block.instructions) {
       if (instr.code === OP_JSR && instr.offset !== undefined) {
-        callees.add(instr.address + instr.offset);
+        callees.add(instr.address + toSignedInt32(instr.offset));
       }
     }
 
@@ -70,7 +71,7 @@ export function collectCalleeEntryPcsTransitiveFromMainFamily(functions: NWScrip
     for (const block of f.bodyBlocks) {
       for (const instr of block.instructions) {
         if (instr.code === OP_JSR && instr.offset !== undefined) {
-          const t = instr.address + instr.offset;
+          const t = instr.address + toSignedInt32(instr.offset);
           out.add(t);
           const callee = subsByEntry.get(t);
           if (callee) {

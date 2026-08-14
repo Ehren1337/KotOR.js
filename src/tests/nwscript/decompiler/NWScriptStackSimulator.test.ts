@@ -65,7 +65,8 @@ describe('NWScriptStackSimulator opcode semantics', () => {
     expect(simulator.peek()?.expression.toNSS()).toBe('nValue');
     simulator.processInstruction(instruction(OP_MOVSP, 0, { offset: -16, codeName: 'MOVSP' }));
     expect(simulator.getStackPointer()).toBe(4);
-    expect(simulator.peek()?.expression.toNSS()).toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__');
+    expect(simulator.peek()?.expression.toNSS())
+      .toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__ /* caller return-value reservation */');
   });
 
   test('DESTRUCT preserves a range relative to the bottom of the destroyed region', () => {
@@ -208,7 +209,8 @@ describe('NWScriptStackSimulator opcode semantics', () => {
 
     const effectSimulator = new NWScriptStackSimulator();
     effectSimulator.processInstruction(instruction(OP_RSADD, NWScriptDataType.EFFECT, { codeName: 'RSADDEFFECT' }));
-    expect(effectSimulator.peek()?.expression.toNSS()).toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__');
+    expect(effectSimulator.peek()?.expression.toNSS())
+      .toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__ /* uninitialized EFFECT RSADD value */');
   });
 
   test('stack underflow is reported instead of fabricating zero operands', () => {
@@ -232,7 +234,8 @@ describe('NWScriptStackSimulator opcode semantics', () => {
       simulator.mergeStackSnapshots([trueExit, falseExit], 'if join', entry)
     );
 
-    expect(simulator.peek()?.expression.toNSS()).toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__');
+    expect(simulator.peek()?.expression.toNSS())
+      .toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__ /* if join: value differs across incoming control-flow edges */');
     expect(simulator.getStackSlotCount()).toBe(1);
   });
 

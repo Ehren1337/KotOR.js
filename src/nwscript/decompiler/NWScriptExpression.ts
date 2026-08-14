@@ -20,6 +20,7 @@ export enum NWScriptExpressionType {
   LOGICAL = 'logical',
   ASSIGNMENT = 'assignment',
   VECTOR = 'vector',
+  AGGREGATE = 'aggregate',
   UNKNOWN = 'unknown'
 }
 
@@ -46,6 +47,12 @@ export class NWScriptExpression {
   // For vector values
   components: NWScriptExpression[];
 
+  /** Flattened physical field types for a synthesized user-defined struct value. */
+  structureFieldTypes: NWScriptDataType[];
+
+  /** Source name assigned to the synthesized struct layout, when known. */
+  structureTypeName?: string;
+
   // For values that cannot be recovered safely
   diagnostic: string;
   
@@ -56,6 +63,7 @@ export class NWScriptExpression {
     this.right = null;
     this.arguments = [];
     this.components = [];
+    this.structureFieldTypes = [];
     this.diagnostic = '';
   }
 
@@ -149,6 +157,17 @@ export class NWScriptExpression {
     return expr;
   }
 
+  /** Physical fields of a flattened user-defined struct value. */
+  static aggregate(components: NWScriptExpression[]): NWScriptExpression {
+    const expr = new NWScriptExpression(
+      NWScriptExpressionType.AGGREGATE,
+      NWScriptDataType.STRUCTURE
+    );
+    expr.components = components;
+    expr.structureFieldTypes = components.map(component => component.dataType);
+    return expr;
+  }
+
   /** Preserve an analysis failure without silently manufacturing a valid literal. */
   static unknown(diagnostic: string, dataType: NWScriptDataType = NWScriptDataType.INTEGER): NWScriptExpression {
     const expr = new NWScriptExpression(NWScriptExpressionType.UNKNOWN, dataType);
@@ -201,6 +220,8 @@ export class NWScriptExpression {
 
       case NWScriptExpressionType.UNARY_OP:
         const operandStr = this.left?.toNSS() || '?';
+        if (this.operator === 'post++') return `${operandStr}++`;
+        if (this.operator === 'post--') return `${operandStr}--`;
         return `${this.operator}${operandStr}`;
 
       case NWScriptExpressionType.FUNCTION_CALL:
@@ -223,8 +244,11 @@ export class NWScriptExpression {
       case NWScriptExpressionType.VECTOR:
         return `Vector(${this.components.map(component => component.toNSS()).join(', ')})`;
 
+      case NWScriptExpressionType.AGGREGATE:
+        return `__NCS_DECOMPILER_AGGREGATE_VALUE__ /* ${this.components.length} flattened fields */`;
+
       case NWScriptExpressionType.UNKNOWN:
-        return `__NCS_DECOMPILER_UNKNOWN_VALUE__`;
+        return `__NCS_DECOMPILER_UNKNOWN_VALUE__ /* ${this.escapeComment(this.diagnostic)} */`;
 
       default:
         return '?';
@@ -241,6 +265,10 @@ export class NWScriptExpression {
       .replace(/\n/g, '\\n')
       .replace(/\r/g, '\\r')
       .replace(/\t/g, '\\t');
+  }
+
+  private escapeComment(value: string): string {
+    return value.replace(/\*\//g, '* /').replace(/\s+/g, ' ').trim() || 'unknown expression';
   }
 
   /**

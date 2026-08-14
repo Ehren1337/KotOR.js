@@ -3,6 +3,7 @@ import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
 import type { NWScriptFunction } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
 import { NWScriptExpression } from "@/nwscript/decompiler/NWScriptExpression";
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
+import { toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
 import {
   OP_RETN,
   OP_JSR,
@@ -31,7 +32,7 @@ export function computeInlinedThunkSkipAddresses(script: NWScript): Set<number> 
     if (!nextInstr || nextInstr.code !== OP_JMP || nextInstr.offset === undefined) {
       continue;
     }
-    const jmpTarget = nextInstr.address + nextInstr.offset;
+    const jmpTarget = nextInstr.address + toSignedInt32(nextInstr.offset);
     let current: NWScriptInstruction | null | undefined = nextInstr.nextInstr;
     while (current && current.address < jmpTarget) {
       skip.add(current.address);
@@ -67,8 +68,9 @@ export function buildDelayCommandThunkCalleeByActionAddress(
     let storeStateInstr: NWScriptInstruction | undefined;
     let jmpInstr: NWScriptInstruction | undefined;
     let cur: NWScriptInstruction | null | undefined = instruction.prevInstr;
-    let steps = 0;
-    while (cur && steps++ < 512) {
+    const visited = new Set<number>();
+    while (cur && !visited.has(cur.address)) {
+      visited.add(cur.address);
       if (
         cur.code === OP_STORE_STATE ||
         cur.code === OP_STORE_STATEALL
@@ -87,11 +89,11 @@ export function buildDelayCommandThunkCalleeByActionAddress(
       continue;
     }
 
-    const jmpTarget = jmpInstr.address + jmpInstr.offset;
+    const jmpTarget = jmpInstr.address + toSignedInt32(jmpInstr.offset);
     let thunkPc: NWScriptInstruction | null | undefined = jmpInstr.nextInstr;
     while (thunkPc && thunkPc.address < jmpTarget) {
       if (thunkPc.code === OP_JSR && thunkPc.offset !== undefined) {
-        const calleePc = thunkPc.address + thunkPc.offset;
+        const calleePc = thunkPc.address + toSignedInt32(thunkPc.offset);
         const callee = entryPcToFn.get(calleePc);
         const name = callee?.name ?? `sub_${calleePc.toString(16)}`;
         map.set(instruction.address, NWScriptExpression.functionCall(name, [], NWScriptDataType.VOID));

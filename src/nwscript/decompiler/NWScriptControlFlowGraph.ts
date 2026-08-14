@@ -5,6 +5,7 @@ import { NWScriptEdge, EdgeType } from "@/nwscript/decompiler/NWScriptEdge";
 import {
   OP_JMP, OP_JSR, OP_JZ, OP_JNZ, OP_RETN, OP_STORE_STATE, OP_STORE_STATEALL
 } from "@/nwscript/NWScriptOPCodes";
+import { toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
 
 /**
  * Control Flow Graph for NWScript decompilation.
@@ -298,7 +299,7 @@ export class NWScriptControlFlowGraph {
         case OP_JZ:
         case OP_JNZ:
           if (instruction.offset !== undefined) {
-            targetAddress = instruction.address + instruction.offset;
+            targetAddress = instruction.address + toSignedInt32(instruction.offset);
             this.jumpTargets.add(targetAddress);
             if (instruction.code === OP_JSR) {
               this.jsrTargets.add(targetAddress);
@@ -356,7 +357,7 @@ export class NWScriptControlFlowGraph {
         // Track JMP target (where outer ACTION call happens)
         const nextInstr = instruction.nextInstr;
         if (nextInstr && nextInstr.code === OP_JMP && nextInstr.offset !== undefined) {
-          const jmpTarget = nextInstr.address + nextInstr.offset;
+          const jmpTarget = nextInstr.address + toSignedInt32(nextInstr.offset);
           this.storeStateJmpTargets.add(jmpTarget);
         }
       }
@@ -472,6 +473,15 @@ export class NWScriptControlFlowGraph {
           if (leaderInstr.address === 0) {
             this.entryBlock = block;
             block.isEntry = true;
+          }
+
+          // A real user routine may begin with an action thunk. The STORE_STATE-specific block
+          // construction must not bypass normal JSR-target registration for that routine entry;
+          // only the thunk callback and its outer-action continuation are synthetic entries.
+          if (this.jsrTargets.has(leaderAddr) &&
+              !this.storeStateJmpTargets.has(leaderAddr) &&
+              !this.callbackEntries.has(leaderAddr)) {
+            this.subroutineEntries.set(leaderAddr, block);
           }
           
           continue;
@@ -594,7 +604,7 @@ export class NWScriptControlFlowGraph {
         case OP_JMP:
           // Documentation: "JMP - Jump to a New Location... Change the current execution address to the relative address given"
           if (lastInstr.offset !== undefined) {
-            const targetAddr = lastInstr.address + lastInstr.offset;
+            const targetAddr = lastInstr.address + toSignedInt32(lastInstr.offset);
             const targetBlock = this.instructionToBlock.get(targetAddr);
             if (targetBlock) {
               successors.push({ block: targetBlock, type: EdgeType.JUMP });
@@ -608,7 +618,7 @@ export class NWScriptControlFlowGraph {
           // 1. The subroutine entry (JSR target) - CALL edge
           // 2. The return point (next instruction after JSR) - RETURN edge
           if (lastInstr.offset !== undefined) {
-            const targetAddr = lastInstr.address + lastInstr.offset;
+            const targetAddr = lastInstr.address + toSignedInt32(lastInstr.offset);
             const targetBlock = this.instructionToBlock.get(targetAddr);
             if (targetBlock) {
               successors.push({ block: targetBlock, type: EdgeType.CALL });
@@ -630,7 +640,7 @@ export class NWScriptControlFlowGraph {
           // Conditional branch: add both true and false paths
           // Order: jump target first (if condition true for JNZ, false for JZ), then fallthrough
           if (lastInstr.offset !== undefined) {
-            const targetAddr = lastInstr.address + lastInstr.offset;
+            const targetAddr = lastInstr.address + toSignedInt32(lastInstr.offset);
             const targetBlock = this.instructionToBlock.get(targetAddr);
             if (targetBlock) {
               const isTrueBranch = lastInstr.code === OP_JNZ;
@@ -1022,7 +1032,7 @@ export class NWScriptControlFlowGraph {
       const jsrBlock = this.instructionToBlock.get(jsrAddress);
       if (jsrBlock) {
         if (jsrInstr.offset !== undefined) {
-          const targetAddr = jsrInstr.address + jsrInstr.offset;
+          const targetAddr = jsrInstr.address + toSignedInt32(jsrInstr.offset);
           const targetBlock = this.instructionToBlock.get(targetAddr);
           if (targetBlock && !jsrBlock.successors.has(targetBlock)) {
             errors.push(`CFG Validation Error: JSR block at address ${jsrAddress} does not connect to subroutine entry at ${targetAddr}`);
@@ -1044,7 +1054,7 @@ export class NWScriptControlFlowGraph {
         } else if (nextInstr.code !== OP_JMP) {
           errors.push(`CFG Validation Error: STORE_STATE/STORE_STATEALL at address ${instruction.address} is not followed by JMP (found ${nextInstr.codeName || nextInstr.code})`);
         } else if (nextInstr.offset !== undefined) {
-          const jmpTarget = nextInstr.address + nextInstr.offset;
+          const jmpTarget = nextInstr.address + toSignedInt32(nextInstr.offset);
           if (!this.storeStateJmpTargets.has(jmpTarget)) {
             errors.push(`CFG Validation Error: STORE_STATE+JMP target at address ${jmpTarget} is not marked as a STORE_STATE target`);
           }
@@ -1139,7 +1149,7 @@ export class NWScriptControlFlowGraph {
         );
         continue;
       }
-      const targetPc = last.address + last.offset;
+      const targetPc = last.address + toSignedInt32(last.offset);
       if (edge.to.startInstruction.address !== targetPc) {
         errors.push(
           `CFG Validation Error: Procedure latch JMP target mismatch ${edge.from.id}->${edge.to.id}`
@@ -1331,7 +1341,7 @@ export class NWScriptControlFlowGraph {
             case 'call':
               // Check if this is the call target or return point
               if (lastInstr.code === OP_JSR && lastInstr.offset !== undefined) {
-                const targetAddr = lastInstr.address + lastInstr.offset;
+                const targetAddr = lastInstr.address + toSignedInt32(lastInstr.offset);
                 if (successor.startInstruction.address === targetAddr) {
                   edgeType = EdgeType.CALL;
                 } else {
@@ -1343,7 +1353,7 @@ export class NWScriptControlFlowGraph {
               // Determine if this is true or false branch
               if (lastInstr.code === OP_JZ || lastInstr.code === OP_JNZ) {
                 const targetAddr = lastInstr.offset !== undefined 
-                  ? lastInstr.address + lastInstr.offset 
+                  ? lastInstr.address + toSignedInt32(lastInstr.offset)
                   : null;
                 
                 if (targetAddr !== null && successor.startInstruction.address === targetAddr) {
@@ -1441,7 +1451,7 @@ export class NWScriptControlFlowGraph {
         if (!last || last.code !== OP_JMP || last.offset === undefined) {
           continue;
         }
-        const targetPc = last.address + last.offset;
+        const targetPc = last.address + toSignedInt32(last.offset);
         if (edge.to.startInstruction.address !== targetPc) {
           continue;
         }

@@ -23,7 +23,30 @@ export class NWScriptASTCodeGenerator {
   generate(ast: NWScriptProgramNode): string {
     const lines: string[] = [];
 
-    // Generate global variable declarations
+    for (const struct of ast.structs) {
+      lines.push(`struct ${struct.name} {`);
+      for (const field of struct.fields) {
+        lines.push(`${this.indentString}${this.getTypeName(field.type)} ${field.name};`);
+      }
+      lines.push('};', '');
+    }
+
+    // NCS stores routines by address and permits forward calls; NSS requires a
+    // declaration before use. Emit prototypes for every recovered helper so source
+    // order, recursion, mutually-recursive call graphs, and helper calls in global
+    // initializers all remain compilable.
+    const helpers = ast.functions.filter(func =>
+      func.name !== 'main' && func.name !== 'StartingConditional'
+    );
+    for (const func of helpers) {
+      lines.push(`${this.generateFunctionSignature(func)};`);
+    }
+    if (helpers.length > 0) {
+      lines.push('');
+    }
+
+    // Generate global variable declarations after prototypes: NWScript permits a global
+    // initializer to call a user routine, but requires that routine to be declared first.
     for (const global of ast.globals) {
       lines.push(this.generateGlobalVariableDeclaration(global));
     }
@@ -50,7 +73,7 @@ export class NWScriptASTCodeGenerator {
    * Generate global variable declaration
    */
   private generateGlobalVariableDeclaration(decl: NWScriptGlobalVariableDeclarationNode): string {
-    const typeName = this.getTypeName(decl.dataType);
+    const typeName = this.getTypeName(decl.dataType, decl.structName);
     const name = decl.name;
     
     if (decl.initializer) {
@@ -67,9 +90,7 @@ export class NWScriptASTCodeGenerator {
     const lines: string[] = [];
 
     // Function signature
-    const returnTypeName = this.getTypeName(func.returnType);
-    const params = func.parameters.map(p => `${this.getTypeName(p.type)} ${p.name}`).join(', ');
-    lines.push(`${returnTypeName} ${func.name}(${params})`);
+    lines.push(this.generateFunctionSignature(func));
     lines.push('{');
 
     // Local variable declarations
@@ -94,11 +115,21 @@ export class NWScriptASTCodeGenerator {
     return lines;
   }
 
+  private generateFunctionSignature(func: NWScriptFunctionNode): string {
+    const returnTypeName = this.getTypeName(func.returnType, func.returnStructName);
+    const params = func.parameters
+      .map(parameter =>
+        `${this.getTypeName(parameter.type, parameter.structName)} ${parameter.name}`
+      )
+      .join(', ');
+    return `${returnTypeName} ${func.name}(${params})`;
+  }
+
   /**
    * Generate variable declaration
    */
   private generateVariableDeclaration(decl: NWScriptVariableDeclarationNode): string {
-    const typeName = this.getTypeName(decl.dataType);
+    const typeName = this.getTypeName(decl.dataType, decl.structName);
     const name = decl.name;
     
     if (decl.initializer) {
@@ -408,7 +439,7 @@ export class NWScriptASTCodeGenerator {
   /**
    * Get type name as string
    */
-  private getTypeName(dataType: NWScriptDataType): string {
+  private getTypeName(dataType: NWScriptDataType, structName?: string): string {
     switch (dataType) {
       case NWScriptDataType.INTEGER:
         return 'int';
@@ -430,6 +461,8 @@ export class NWScriptASTCodeGenerator {
         return 'location';
       case NWScriptDataType.TALENT:
         return 'talent';
+      case NWScriptDataType.STRUCTURE:
+        return structName ? `struct ${structName}` : 'unknown';
       default:
         return 'unknown';
     }

@@ -107,11 +107,18 @@ export class NWScriptDecompiler {
 
     nwscriptDecompilerDebug('Analyzing global variables...');
     this.globalVarAnalyzer = new NWScriptGlobalVariableAnalyzer(this.script, this.cfg);
-    const globalInits = this.globalVarAnalyzer.analyze();
+    let globalInits = this.globalVarAnalyzer.analyze();
 
     nwscriptDecompilerDebug('Analyzing functions...');
     this.functionAnalyzer = new NWScriptFunctionAnalyzer(this.cfg, globalInits);
-    const functions = this.functionAnalyzer.analyze();
+    let functions = this.functionAnalyzer.analyze();
+
+    // A preliminary function ABI is needed to simulate JSRs in global initializer expressions.
+    // Rebuild signatures once the exact SAVEBP frame has removed transient return reservations.
+    globalInits = this.globalVarAnalyzer.recoverInitializerExpressions(functions);
+    this.functionAnalyzer = new NWScriptFunctionAnalyzer(this.cfg, globalInits);
+    functions = this.functionAnalyzer.analyze();
+    globalInits = this.globalVarAnalyzer.recoverInitializerExpressions(functions);
 
     nwscriptDecompilerDebug('Analyzing local variables...');
     this.localVarAnalyzer = new NWScriptLocalVariableAnalyzer(

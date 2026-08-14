@@ -188,8 +188,7 @@ export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): numb
 function collectChainBeforeJsr(jsr: NWScriptInstruction): NWScriptInstruction[] {
   const rev: NWScriptInstruction[] = [];
   let cur: NWScriptInstruction | null | undefined = jsr.prevInstr;
-  let guard = 240;
-  while (cur && guard-- > 0) {
+  while (cur) {
     if (HARD_STOP_BACKWARDS.has(cur.code)) {
       break;
     }
@@ -229,7 +228,7 @@ export function nwscriptDataTypeStackBytes(dataType: NWScriptDataType): number {
 export function nwscriptParametersTotalBytes(parameters: NWScriptFunctionParameter[]): number {
   let sum = 0;
   for (const p of parameters) {
-    sum += nwscriptDataTypeStackBytes(p.dataType);
+    sum += (p.stackSlots ?? stackSlotsForDataType(p.dataType)) * 4;
   }
   return sum;
 }
@@ -252,6 +251,19 @@ const RETURN_RESERVATION_BACKWARD_STOPS = new Set<number>([
 export interface JsrReturnReservation {
   dataType: NWScriptDataType;
   instructions: NWScriptInstruction[];
+  /** Flattened physical fields when the nominal source type was a user-defined struct. */
+  structureFieldTypes?: NWScriptDataType[];
+}
+
+export interface SubroutineCallAbiInference {
+  parameterSlots: number;
+  returnType: NWScriptDataType;
+  returnStructureFieldTypes?: NWScriptDataType[];
+}
+
+export interface InferredJsrArgument {
+  dataType: NWScriptDataType | null;
+  stackSlots: number;
 }
 
 function instructionResultDataType(instruction: NWScriptInstruction): NWScriptDataType | null {
@@ -304,14 +316,16 @@ export function inferJsrArgumentTypes(
   // Formal one is nearest TOS and therefore has the least-negative frame offset.
   for (const parameter of [...parameters].sort((left, right) => right.offset - left.offset)) {
     if (!cursor) return null;
-    const expectedSlots = Math.max(1, stackSlotsForDataType(parameter.dataType));
+    const expectedSlots = Math.max(
+      1,
+      parameter.stackSlots ?? stackSlotsForDataType(parameter.dataType)
+    );
     const rootType = expectedSlots === 3
       ? NWScriptDataType.VECTOR
       : instructionResultDataType(cursor);
     let contribution = 0;
-    let guard = 512;
 
-    while (contribution < expectedSlots && cursor && guard-- > 0) {
+    while (contribution < expectedSlots && cursor) {
       if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code)) {
         return null;
       }
@@ -337,23 +351,22 @@ export function inferJsrArgumentTypes(
 export function inferJsrArgumentTypesByTotalSlots(
   jsr: NWScriptInstruction,
   totalSlots: number
-): NWScriptDataType[] | null {
+): InferredJsrArgument[] | null {
   if (!Number.isInteger(totalSlots) || totalSlots < 0) return null;
   if (totalSlots === 0) return [];
 
   let cursor: NWScriptInstruction | null | undefined = jsr.prevInstr;
-  const inferred: NWScriptDataType[] = [];
+  const inferred: InferredJsrArgument[] = [];
   let totalConsumed = 0;
-  let outerGuard = 128;
 
-  while (totalConsumed < totalSlots && cursor && outerGuard-- > 0) {
+  while (totalConsumed < totalSlots && cursor) {
     if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code) || cursor.code === OP_RSADD) {
       return null;
     }
 
     const rootType = instructionResultDataType(cursor);
     let rootSlots: number;
-    let dataType: NWScriptDataType;
+    let dataType: NWScriptDataType | null;
     if (rootType !== null && rootType !== NWScriptDataType.VOID) {
       dataType = rootType;
       rootSlots = stackSlotsForDataType(rootType);
@@ -363,7 +376,13 @@ export function inferJsrArgumentTypesByTotalSlots(
       } catch {
         return null;
       }
-      dataType = rootSlots === 3 ? NWScriptDataType.VECTOR : NWScriptDataType.INTEGER;
+      // Scalar frame copies carry no source datatype in NCS. Treating all of them as integer
+      // makes a typed object/string call site conflict with otherwise identical forwarded calls.
+      dataType = rootSlots === 3
+        ? NWScriptDataType.VECTOR
+        : rootSlots > 1
+          ? NWScriptDataType.STRUCTURE
+          : null;
     } else {
       return null;
     }
@@ -371,8 +390,7 @@ export function inferJsrArgumentTypesByTotalSlots(
     if (rootSlots <= 0 || totalConsumed + rootSlots > totalSlots) return null;
 
     let contribution = 0;
-    let expressionGuard = 512;
-    while (contribution < rootSlots && cursor && expressionGuard-- > 0) {
+    while (contribution < rootSlots && cursor) {
       if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code) || cursor.code === OP_RSADD) {
         return null;
       }
@@ -383,7 +401,7 @@ export function inferJsrArgumentTypesByTotalSlots(
     }
     if (contribution !== rootSlots) return null;
 
-    inferred.push(dataType);
+    inferred.push({ dataType, stackSlots: rootSlots });
     totalConsumed += rootSlots;
   }
 
@@ -398,9 +416,8 @@ export function findJsrReturnReservation(
 ): JsrReturnReservation | null {
   let cursor: NWScriptInstruction | null | undefined = jsr.prevInstr;
   let contribution = 0;
-  let guard = 512;
 
-  while (contribution < parameterSlots && cursor && guard-- > 0) {
+  while (contribution < parameterSlots && cursor) {
     if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code)) {
       return null;
     }
@@ -416,23 +433,103 @@ export function findJsrReturnReservation(
     return null;
   }
 
-  if (returnBytes === 12) {
-    const instructions: NWScriptInstruction[] = [];
-    for (let component = 0; component < 3; component += 1) {
-      if (cursor?.code !== OP_RSADD || rsaddTypeToDataType(cursor.type) !== NWScriptDataType.FLOAT) {
-        return null;
-      }
-      instructions.push(cursor);
-      cursor = cursor.prevInstr;
-    }
+  const returnSlots = returnBytes / 4;
+  const reverseInstructions: NWScriptInstruction[] = [];
+  const reverseFieldTypes: NWScriptDataType[] = [];
+  for (let slot = 0; slot < returnSlots; slot += 1) {
+    if (cursor?.code !== OP_RSADD) return null;
+    const fieldType = rsaddTypeToDataType(cursor.type);
+    if (fieldType === null) return null;
+    reverseInstructions.push(cursor);
+    reverseFieldTypes.push(fieldType);
+    cursor = cursor.prevInstr;
+  }
+  const instructions = reverseInstructions.reverse();
+  const fieldTypes = reverseFieldTypes.reverse();
+  if (returnSlots === 1) {
+    return { dataType: fieldTypes[0], instructions };
+  }
+  if (
+    returnSlots === 3 &&
+    fieldTypes.every(dataType => dataType === NWScriptDataType.FLOAT)
+  ) {
     return { dataType: NWScriptDataType.VECTOR, instructions };
   }
+  return {
+    dataType: NWScriptDataType.STRUCTURE,
+    instructions,
+    structureFieldTypes: fieldTypes,
+  };
+}
 
-  if (returnBytes !== 4 || cursor.code !== OP_RSADD) {
-    return null;
+/**
+ * Recover a non-void routine's scalar/vector return type and argument width together.
+ *
+ * NCS puts the caller's typed RSADD return reservation immediately below the argument
+ * expressions. Walking backward from JSR therefore recovers both pieces of ABI evidence even
+ * when a conservative CFG does not assign the callee's shared MOVSP/RETN epilogue to its body.
+ * Calls whose argument expression crosses another JSR cannot be proven by this local walk and
+ * are ignored; every provable call must agree.
+ */
+export function inferSubroutineCallAbiFromCallSites(
+  script: NWScript,
+  targetEntryPc: number,
+  returnBytes: number,
+  shouldCountJsr?: (instr: NWScriptInstruction) => boolean
+): SubroutineCallAbiInference | null {
+  if (returnBytes <= 0 || returnBytes % 4 !== 0) return null;
+
+  let consensus: SubroutineCallAbiInference | null = null;
+  for (const instruction of script.instructions.values()) {
+    if (
+      instruction.code !== OP_JSR ||
+      instruction.offset === undefined ||
+      instruction.address + toSignedInt32(instruction.offset) !== targetEntryPc ||
+      (shouldCountJsr && !shouldCountJsr(instruction))
+    ) {
+      continue;
+    }
+
+    let cursor: NWScriptInstruction | null | undefined = instruction.prevInstr;
+    let parameterSlots = 0;
+    let atCall: SubroutineCallAbiInference | null = null;
+    while (cursor) {
+      if (cursor.code === OP_RSADD && parameterSlots >= 0) {
+        const reservation = findJsrReturnReservation(
+          instruction,
+          parameterSlots,
+          returnBytes
+        );
+        if (reservation) {
+          atCall = {
+            parameterSlots,
+            returnType: reservation.dataType,
+            returnStructureFieldTypes: reservation.structureFieldTypes,
+          };
+          break;
+        }
+      }
+      if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code)) break;
+      const delta = instructionForwardStackSlotDelta(cursor);
+      if (delta === null) break;
+      parameterSlots += delta;
+      cursor = cursor.prevInstr;
+    }
+
+    if (!atCall) continue;
+    if (
+      consensus &&
+      (consensus.parameterSlots !== atCall.parameterSlots ||
+        consensus.returnType !== atCall.returnType ||
+        JSON.stringify(consensus.returnStructureFieldTypes ?? []) !==
+          JSON.stringify(atCall.returnStructureFieldTypes ?? []))
+    ) {
+      return null;
+    }
+    consensus = atCall;
   }
-  const dataType = rsaddTypeToDataType(cursor.type);
-  return dataType === null ? null : { dataType, instructions: [cursor] };
+
+  return consensus;
 }
 
 /**
@@ -457,7 +554,7 @@ export function inferSubroutineReturnTypeFromCallSites(
     if (
       instruction.code !== OP_JSR ||
       instruction.offset === undefined ||
-      instruction.address + instruction.offset !== targetEntryPc ||
+      instruction.address + toSignedInt32(instruction.offset) !== targetEntryPc ||
       (shouldCountJsr && !shouldCountJsr(instruction))
     ) {
       continue;
@@ -492,7 +589,9 @@ export function collectJsrReturnReservationAddresses(
 
   for (const instruction of script.instructions.values()) {
     if (instruction.code !== OP_JSR || instruction.offset === undefined) continue;
-    const func = byEntry.get(instruction.address + instruction.offset);
+    const func = byEntry.get(
+      instruction.address + toSignedInt32(instruction.offset)
+    );
     if (!func) continue;
     const reservation = findJsrReturnReservation(
       instruction,
@@ -522,7 +621,7 @@ export function inferSubroutineParameterSlotsFromCallSites(
     if (instr.code !== OP_JSR || instr.offset === undefined) {
       continue;
     }
-    if (instr.address + instr.offset !== targetEntryPc) {
+    if (instr.address + toSignedInt32(instr.offset) !== targetEntryPc) {
       continue;
     }
     if (shouldCountJsr && !shouldCountJsr(instr)) {
@@ -543,7 +642,7 @@ export function buildJsrCalleeArgSlotsByEntryPc(functions: NWScriptFunction[], s
   const allTargets = new Set<number>();
   for (const instr of script.instructions.values()) {
     if (instr.code === OP_JSR && instr.offset !== undefined) {
-      allTargets.add(instr.address + instr.offset);
+      allTargets.add(instr.address + toSignedInt32(instr.offset));
     }
   }
 
@@ -562,7 +661,8 @@ export function buildJsrCalleeArgSlotsByEntryPc(functions: NWScriptFunction[], s
     // Remove it before using call-site inference as a fallback for an otherwise untyped callee.
     const inferred = Math.max(
       0,
-      (map.get(entryPc) ?? 0) - stackSlotsForDataType(f.returnType)
+      (map.get(entryPc) ?? 0) -
+        (f.returnStackSlots ?? stackSlotsForDataType(f.returnType))
     );
     let slots = analyzed;
     if (analyzed > 0 && inferred > 0) {
@@ -580,6 +680,8 @@ export function buildJsrCalleeArgSlotsByEntryPc(functions: NWScriptFunction[], s
 export interface JsrUserRoutineMeta {
   name: string;
   returnType: NWScriptDataType;
+  returnStackSlots: number;
+  returnStructureFieldTypes?: NWScriptDataType[];
   parameters: NWScriptFunctionParameter[];
 }
 
@@ -596,6 +698,9 @@ export function buildJsrUserRoutineMetaByEntryPc(functions: NWScriptFunction[]):
     map.set(f.entryBlock.startInstruction.address, {
       name: f.name,
       returnType: f.returnType,
+      returnStackSlots:
+        f.returnStackSlots ?? stackSlotsForDataType(f.returnType),
+      returnStructureFieldTypes: f.returnStructureFieldTypes,
       parameters: [...f.parameters].sort((a, b) => b.offset - a.offset),
     });
   }

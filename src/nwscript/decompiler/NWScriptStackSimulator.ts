@@ -1,5 +1,5 @@
 import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
-import { NWScriptExpression } from "@/nwscript/decompiler/NWScriptExpression";
+import { NWScriptExpression, NWScriptExpressionType } from "@/nwscript/decompiler/NWScriptExpression";
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
 import type { NWScriptFunctionParameter } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
 import type { JsrUserRoutineMeta } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
@@ -37,6 +37,20 @@ export interface NWScriptStackSnapshot {
   stack: StackItem[];
   stackPointer: number;
   basePointer: number;
+}
+
+export interface NWScriptGlobalAggregateLayout {
+  name: string;
+  dataType: NWScriptDataType.VECTOR | NWScriptDataType.STRUCTURE;
+  fieldTypes: NWScriptDataType[];
+}
+
+/** Optional source identity for an RSADD-backed frame allocation. */
+export interface NWScriptFrameVariableIdentity {
+  name: string;
+  dataType: NWScriptDataType;
+  isGlobal?: boolean;
+  structureFieldTypes?: NWScriptDataType[];
 }
 
 export class NWScriptStackAnalysisError extends Error {
@@ -80,15 +94,34 @@ export class NWScriptStackSimulator {
   /**
    * Function parameters (for mapping CPTOPBP offsets to parameter names)
    */
-  private functionParameters: Map<number, { name: string, dataType: NWScriptDataType }> = new Map();
+  private functionParameters: Map<
+    number,
+    {
+      name: string;
+      dataType: NWScriptDataType;
+      stackSlots?: number;
+      structureFieldTypes?: NWScriptDataType[];
+    }
+  > = new Map();
 
   /** CPTOPSP-only parameters: CPTOPSP signed offset operand → formal */
-  private cptopspParameterOperands: Map<number, { name: string; dataType: NWScriptDataType }> = new Map();
+  private cptopspParameterOperands: Map<
+    number,
+    {
+      name: string;
+      dataType: NWScriptDataType;
+      stackSlots?: number;
+      structureFieldTypes?: NWScriptDataType[];
+    }
+  > = new Map();
   
   /**
    * Global variables (for mapping CPTOPBP positive offsets to global variable names)
    */
   private globalVariables: Map<number, { name: string, dataType: NWScriptDataType }> = new Map();
+
+  /** First BP byte offset → whole source aggregate represented by flattened global slots. */
+  private globalAggregateLayouts: Map<number, NWScriptGlobalAggregateLayout> = new Map();
   
   /**
    * Local variables (for mapping CPTOPSP offsets to local variable names)
@@ -102,6 +135,24 @@ export class NWScriptStackSimulator {
    * This is set by the converter and used for accurate CPTOPSP resolution
    */
   private variableStackPositions: Map<number, number> = new Map();
+
+  /** RSADD instruction address to canonical `localVar_i` index. */
+  private localVariableAllocationIndices: Map<number, number> = new Map();
+
+  /** Source identities used when a non-local frame (notably pre-SAVEBP globals) uses SP access. */
+  private frameVariableIdentities: Map<number, NWScriptFrameVariableIdentity> = new Map();
+
+  /** Whole-value identities for flattened multi-slot allocations. */
+  private frameAggregateIdentities: Map<number, NWScriptFrameVariableIdentity> = new Map();
+
+  /** First allocation index for each three-slot local represented as one source vector. */
+  private vectorLocalAllocationStarts: Set<number> = new Set();
+
+  /** First allocation index → flattened fields for each synthesized local user struct. */
+  private structureLocalLayouts: Map<number, NWScriptDataType[]> = new Map();
+
+  /** Optional procedure-scoped sink for type evidence discovered at typed consumers. */
+  private variableTypeObserver?: (name: string, dataType: NWScriptDataType) => void;
   
   /**
    * Local variable initializations (for looking up variable info by index)
@@ -115,11 +166,14 @@ export class NWScriptStackSimulator {
   /** Callee entry PC → user subroutine (for JSR → {@link NWScriptExpression.functionCall}). */
   private jsrUserRoutineMetaByEntryPc: Map<number, JsrUserRoutineMeta> = new Map();
 
-  /** DelayCommand ACTION PC → void script callee for second argument (STORE_STATE thunk). */
-  private delayCommandThunkSecondArg: Map<number, NWScriptExpression> = new Map();
+  /** ACTION instruction PC → source expression recovered from its STORE_STATE thunk. */
+  private actionThunkArgumentByActionAddress: Map<number, NWScriptExpression> = new Map();
 
   /** Recoverable warnings. Stack underflow and malformed widths throw instead. */
   private diagnostics: string[] = [];
+
+  /** Logical values explicitly discarded by the most recently processed MOVSP. */
+  private discardedExpressions: NWScriptExpression[] = [];
 
   setJsrCalleeArgSlotsByEntryPc(map: Map<number, number>): void {
     this.jsrCalleeArgSlotsByEntryPc = map;
@@ -130,7 +184,11 @@ export class NWScriptStackSimulator {
   }
 
   setDelayCommandThunkSecondArg(map: Map<number, NWScriptExpression>): void {
-    this.delayCommandThunkSecondArg = map;
+    this.actionThunkArgumentByActionAddress = map;
+  }
+
+  setActionThunkArgumentByActionAddress(map: Map<number, NWScriptExpression>): void {
+    this.actionThunkArgumentByActionAddress = map;
   }
 
   /**
@@ -145,15 +203,22 @@ export class NWScriptStackSimulator {
    */
   initializeFunctionFrame(
     returnType: NWScriptDataType,
-    parameters: NWScriptFunctionParameter[]
+    parameters: NWScriptFunctionParameter[],
+    returnStackSlots = stackSlotsForDataType(returnType),
+    returnStructureFieldTypes?: NWScriptDataType[]
   ): number {
     this.stack = [];
     this.stackPointer = 0;
 
-    const returnSlots = stackSlotsForDataType(returnType);
+    const returnSlots = returnStackSlots;
     if (returnSlots > 0) {
+      const reservation = NWScriptExpression.unknown(
+        'caller return-value reservation',
+        returnType
+      );
+      reservation.structureFieldTypes = returnStructureFieldTypes ?? [];
       this.push(
-        NWScriptExpression.unknown('caller return-value reservation', returnType),
+        reservation,
         -1,
         returnSlots
       );
@@ -161,10 +226,12 @@ export class NWScriptStackSimulator {
 
     const formals = [...parameters].sort((left, right) => right.offset - left.offset);
     for (const parameter of formals.reverse()) {
-      const slots = stackSlotsForDataType(parameter.dataType);
+      const slots = parameter.stackSlots ?? stackSlotsForDataType(parameter.dataType);
       if (slots === 0) continue;
+      const expression = NWScriptExpression.variable(parameter.name, parameter.dataType);
+      expression.structureFieldTypes = parameter.structureFieldTypes ?? [];
       this.push(
-        NWScriptExpression.variable(parameter.name, parameter.dataType),
+        expression,
         -1,
         slots
       );
@@ -194,6 +261,7 @@ export class NWScriptStackSimulator {
    * Process an instruction and update the stack state
    */
   processInstruction(instruction: NWScriptInstruction): NWScriptExpression | null {
+    this.discardedExpressions = [];
     // OPTIMIZATION: Only save snapshot if snapshots are enabled (for debugging)
     if (this.enableSnapshots) {
       this.saveSnapshot(instruction.address);
@@ -366,8 +434,27 @@ export class NWScriptStackSimulator {
       left = this.popTypedValue(signature.left, instruction, 'left operand');
     }
     const operator = this.getComparisonOperator(instruction.code);
-    
-    const expr = NWScriptExpression.comparison(operator, left, right);
+
+    let expr: NWScriptExpression;
+    if (
+      instruction.type === NWScriptDataType.STRUCTURE &&
+      left.components.length > 0 &&
+      left.components.length === right.components.length
+    ) {
+      const comparisons = left.components.map((component, index) =>
+        NWScriptExpression.comparison(operator, component, right.components[index])
+      );
+      expr = comparisons.slice(1).reduce(
+        (combined, comparison) => NWScriptExpression.logical(
+          instruction.code === OP_EQUAL ? '&&' : '||',
+          combined,
+          comparison
+        ),
+        comparisons[0]
+      );
+    } else {
+      expr = NWScriptExpression.comparison(operator, left, right);
+    }
     this.push(expr, instruction.address);
     return expr;
   }
@@ -449,26 +536,36 @@ export class NWScriptStackSimulator {
     if (instruction.offset === undefined) {
       return null;
     }
-    const targetPc = instruction.address + instruction.offset;
+    const targetPc = instruction.address + toSignedInt32(instruction.offset);
     const slots = this.jsrCalleeArgSlotsByEntryPc.get(targetPc) ?? 0;
     const meta = this.jsrUserRoutineMetaByEntryPc.get(targetPc);
 
     if (meta) {
       const args: NWScriptExpression[] = [];
-      if (meta.parameters.length > 0) {
-        for (const parameter of meta.parameters) {
-          args.push(this.popTypedValue(parameter.dataType, instruction, `argument ${parameter.name}`));
-        }
-      } else if (slots > 0) {
-        args.push(...this.popScalarArgumentsBySlotCount(slots, instruction, 'JSR arguments'));
+      // A recovered user-routine signature is authoritative, including an empty
+      // parameter list. The raw backward stack delta also sees local allocations and
+      // return reservations; treating that fallback as arguments made calls such as
+      // `sub3()` become `sub3(0)` whenever an unrelated RSADD preceded the JSR.
+      for (const parameter of meta.parameters) {
+        args.push(this.popTypedValue(
+          parameter.dataType,
+          instruction,
+          `argument ${parameter.name}`,
+          parameter.stackSlots
+        ));
       }
 
       const expr = NWScriptExpression.functionCall(meta.name, args, meta.returnType);
+      expr.structureFieldTypes = meta.returnStructureFieldTypes ?? [];
       if (meta.returnType !== NWScriptDataType.VOID) {
         // The caller reserves the result before pushing arguments. Replace those reserved
         // slots with the call expression instead of appending a second result value.
-        this.discardSlots(stackSlotsForDataType(meta.returnType), instruction, 'JSR return reservation');
-        this.push(expr, instruction.address, stackSlotsForDataType(meta.returnType));
+        this.discardSlots(
+          meta.returnStackSlots,
+          instruction,
+          'JSR return reservation'
+        );
+        this.push(expr, instruction.address, meta.returnStackSlots);
       }
       return expr;
     }
@@ -518,7 +615,10 @@ export class NWScriptStackSimulator {
     for (let i = 0; i < argCount; i++) {
       const dataType = actionDef.args[i];
       if (dataType === NWScriptDataType.ACTION) {
-        args.push(NWScriptExpression.unknown(`ACTION thunk argument ${i + 1}`, NWScriptDataType.ACTION));
+        args.push(
+          this.actionThunkArgumentByActionAddress.get(instruction.address) ??
+          NWScriptExpression.unknown(`ACTION thunk argument ${i + 1}`, NWScriptDataType.ACTION)
+        );
       } else {
         args.push(this.popTypedValue(dataType, instruction, `argument ${i + 1} of ${actionDef.name}`));
       }
@@ -527,24 +627,6 @@ export class NWScriptStackSimulator {
     const functionName = actionDef.name || `Action_${instruction.action}`;
     const returnType = actionDef.type || NWScriptDataType.VOID;
 
-    const isDelayCommand =
-      functionName === "DelayCommand" || instruction.action === 7;
-
-    const thunkReplace =
-      isDelayCommand
-        ? this.delayCommandThunkSecondArg.get(instruction.address)
-        : undefined;
-    if (thunkReplace) {
-      if (args.length === 0) {
-        args.push(NWScriptExpression.constant(0, NWScriptDataType.FLOAT));
-      }
-      if (args.length === 1) {
-        args.push(thunkReplace);
-      } else {
-        args[args.length - 1] = thunkReplace;
-      }
-    }
-    
     const expr = NWScriptExpression.functionCall(functionName, args, returnType);
     
     // Push return value if not void
@@ -575,14 +657,23 @@ export class NWScriptStackSimulator {
       // Check if this is a function parameter (negative offset)
       const offset = instruction.offset;
       const offsetSigned = offset > 0x7FFFFFFF ? offset - 0x100000000 : offset;
-      
+
       if (offsetSigned < 0 && this.functionParameters.has(offsetSigned)) {
-        // This is a function parameter (negative offset relative to BP)
-        const param = this.functionParameters.get(offsetSigned)!;
-        varName = param.name;
-        dataType = param.dataType;
-        expressionIsGlobal = false;
-      } else if (this.globalVariables.has(offsetSigned)) {
+        const parameter = this.functionParameters.get(offsetSigned)!;
+        const expression = NWScriptExpression.variable(
+          parameter.name,
+          parameter.dataType
+        );
+        expression.structureFieldTypes = parameter.structureFieldTypes ?? [];
+        this.push(expression, instruction.address, width);
+        return expression;
+      }
+
+      if (width > 1) {
+        return this.copyGlobalFrameRange(offsetSigned, width, instruction);
+      }
+
+      if (this.globalVariables.has(offsetSigned)) {
         const globalVar = this.globalVariables.get(offsetSigned)!;
         varName = globalVar.name;
         dataType = globalVar.dataType;
@@ -597,33 +688,58 @@ export class NWScriptStackSimulator {
       
       // Calculate the actual stack position this instruction reads from
       const sourceStackPos = this.stackPointer + offsetSigned;
-      
-      // First, try to resolve using the dynamic stack position map (stack-aware)
-      const varIndex = this.variableStackPositions.get(sourceStackPos);
-      if (varIndex !== undefined) {
-        // RSADD-registered slot: analyzer may have no NWScriptLocalInit row (non −8 CPDOWNSP patterns).
-        const init = this.localVariableInits[varIndex];
-        varName = `localVar_${varIndex}`;
-        dataType = width === 3
-          ? NWScriptDataType.VECTOR
-          : init?.dataType ?? NWScriptDataType.INTEGER;
-      } else {
-        const spParam = this.cptopspParameterOperands.get(offsetSigned);
-        const staticLocal = this.localVariables.get(offsetSigned) ?? this.localVariables.get(offset >>> 0);
-        if (staticLocal) {
-          varName = staticLocal.name;
-          dataType = staticLocal.dataType;
-        } else {
-          const copiedValue = this.readRepresentedStackValue(
+
+      if (width > 1) {
+        // Parameters and return reservations are seeded as logical multi-slot values rather than
+        // RSADD-backed locals. Prefer a proven local-frame identity when one exists; otherwise
+        // copy the represented logical value so a vector formal remains `vectorParamN` instead
+        // of becoming three unresolved local fields.
+        if (this.getLocalVariableIndexAtStackPosition(sourceStackPos) === undefined) {
+          const representedValue = this.readRepresentedStackValue(
             sourceStackPos,
             width,
             this.dataTypeForCopyWidth(instruction.size),
             instruction
           );
-          if (copiedValue) {
-            this.push(copiedValue, instruction.address, width);
-            return copiedValue;
+          if (representedValue) {
+            this.push(representedValue, instruction.address, width);
+            return representedValue;
           }
+        }
+        return this.copyLocalFrameRange(sourceStackPos, width, instruction);
+      }
+      
+      // First, try to resolve using the dynamic stack position map (stack-aware)
+      const varIndex = this.getLocalVariableIndexAtStackPosition(sourceStackPos);
+      if (varIndex !== undefined) {
+        // RSADD-registered slot: analyzer may have no NWScriptLocalInit row (non −8 CPDOWNSP patterns).
+        const init = this.localVariableInits[varIndex];
+        const identity = this.frameVariableIdentities.get(varIndex);
+        varName = identity?.name ?? `localVar_${varIndex}`;
+        dataType = identity?.dataType ?? (width === 3
+          ? NWScriptDataType.VECTOR
+          : init?.dataType ?? NWScriptDataType.INTEGER);
+        expressionIsGlobal = identity?.isGlobal ?? false;
+      } else {
+        const spParam = this.cptopspParameterOperands.get(offsetSigned);
+        const staticLocal = this.localVariables.get(offsetSigned) ?? this.localVariables.get(offset >>> 0);
+        // Raw CPTOPSP operands are relative to the *current* SP and are reused for parameters,
+        // locals, and temporaries as the stack changes. Prefer the represented physical frame;
+        // an offset-only local map is merely a fallback for partial expression probes.
+        const copiedValue = this.readRepresentedStackValue(
+          sourceStackPos,
+          width,
+          this.dataTypeForCopyWidth(instruction.size),
+          instruction
+        );
+        if (copiedValue) {
+          this.push(copiedValue, instruction.address, width);
+          return copiedValue;
+        }
+        if (staticLocal) {
+          varName = staticLocal.name;
+          dataType = staticLocal.dataType;
+        } else {
           if (spParam) {
             // Compatibility fallback for expression probes that do not have a seeded frame.
             varName = spParam.name;
@@ -642,6 +758,192 @@ export class NWScriptStackSimulator {
     const expr = NWScriptExpression.variable(varName, dataType, expressionIsGlobal);
     this.push(expr, instruction.address, width);
     return expr;
+  }
+
+  /**
+   * Preserve each physical field of a multi-slot SP copy. User-struct fields and vector
+   * components are compiled as a whole-frame CPTOPSP followed by DESTRUCT; retaining scalar
+   * StackItems lets that DESTRUCT select the actual local instead of cutting through an opaque
+   * aggregate value.
+   */
+  private copyLocalFrameRange(
+    startPosition: number,
+    width: number,
+    instruction: NWScriptInstruction
+  ): NWScriptExpression {
+    const allocationIndices = Array.from({ length: width }, (_, slot) =>
+      this.getLocalVariableIndexAtStackPosition(startPosition + slot * 4) ?? -1
+    );
+    const vectorStart = allocationIndices[0];
+    if (
+      width === 3 &&
+      vectorStart >= 0 &&
+      this.vectorLocalAllocationStarts.has(vectorStart) &&
+      allocationIndices.every((index, component) => index === vectorStart + component)
+    ) {
+      const identity = this.frameAggregateIdentities.get(vectorStart) ??
+        this.frameVariableIdentities.get(vectorStart);
+      const expression = NWScriptExpression.variable(
+        identity?.name ?? `localVar_${vectorStart}`,
+        NWScriptDataType.VECTOR,
+        identity?.isGlobal ?? false
+      );
+      this.push(expression, instruction.address, 3);
+      return expression;
+    }
+
+    const structureStart = allocationIndices[0];
+    const structureFields = this.structureLocalLayouts.get(structureStart);
+    if (
+      structureStart >= 0 &&
+      structureFields?.length === width &&
+      allocationIndices.every((index, field) => index === structureStart + field)
+    ) {
+      const identity = this.frameAggregateIdentities.get(structureStart) ??
+        this.frameVariableIdentities.get(structureStart);
+      const expression = NWScriptExpression.variable(
+        identity?.name ?? `localVar_${structureStart}`,
+        NWScriptDataType.STRUCTURE,
+        identity?.isGlobal ?? false
+      );
+      expression.structureFieldTypes = structureFields;
+      this.push(expression, instruction.address, width);
+      return expression;
+    }
+
+    const copied: NWScriptExpression[] = [];
+    for (let slot = 0; slot < width; slot += 1) {
+      const rawAllocationIndex = allocationIndices[slot];
+      const allocationIndex = rawAllocationIndex >= 0 ? rawAllocationIndex : undefined;
+
+      let expression: NWScriptExpression;
+      const vectorStart = allocationIndex === undefined
+        ? undefined
+        : Array.from(this.vectorLocalAllocationStarts).find(
+            start => allocationIndex >= start && allocationIndex < start + 3
+          );
+      const structureEntry = allocationIndex === undefined
+        ? undefined
+        : Array.from(this.structureLocalLayouts.entries()).find(
+            ([start, fields]) =>
+              allocationIndex >= start && allocationIndex < start + fields.length
+          );
+      if (allocationIndex === undefined) {
+        expression = NWScriptExpression.unknown(
+          `unresolved local frame field at SP ${startPosition + slot * 4}`
+        );
+      } else if (this.frameVariableIdentities.has(allocationIndex)) {
+        const identity = this.frameVariableIdentities.get(allocationIndex)!;
+        expression = NWScriptExpression.variable(
+          identity.name,
+          identity.dataType,
+          identity.isGlobal ?? false
+        );
+        expression.structureFieldTypes = identity.structureFieldTypes ?? [];
+      } else if (vectorStart !== undefined) {
+        const component = ['x', 'y', 'z'][allocationIndex - vectorStart];
+        expression = NWScriptExpression.variable(
+          `localVar_${vectorStart}.${component}`,
+          NWScriptDataType.FLOAT
+        );
+      } else if (structureEntry !== undefined) {
+        const [start, fields] = structureEntry;
+        const field = allocationIndex - start;
+        expression = NWScriptExpression.variable(
+          `localVar_${start}.field_${field}`,
+          fields[field] ?? NWScriptDataType.INTEGER
+        );
+      } else {
+        expression = NWScriptExpression.variable(
+          `localVar_${allocationIndex}`,
+          this.localVariableInits[allocationIndex]?.dataType ?? NWScriptDataType.INTEGER
+        );
+      }
+      this.push(expression, instruction.address, 1);
+      copied.push(expression);
+    }
+
+    return NWScriptExpression.unknown(
+      `multi-slot local frame copy retained as ${copied.length} scalar fields`,
+      NWScriptDataType.STRUCTURE
+    );
+  }
+
+  /**
+   * Preserve the scalar fields of a multi-slot BP copy. The compiler implements user-struct
+   * field reads as CPTOPBP of the whole struct followed by DESTRUCT of all but one field. The
+   * global analyzer already exposes that frame as flattened scalar globals, so keeping one
+   * StackItem per field lets DESTRUCT select the actual source variable instead of an unknown.
+   */
+  private copyGlobalFrameRange(
+    startOffset: number,
+    width: number,
+    instruction: NWScriptInstruction
+  ): NWScriptExpression {
+    const aggregate = this.globalAggregateLayouts.get(startOffset);
+    if (aggregate?.fieldTypes.length === width) {
+      const expression = NWScriptExpression.variable(
+        aggregate.name,
+        aggregate.dataType,
+        true
+      );
+      expression.structureFieldTypes = aggregate.dataType === NWScriptDataType.STRUCTURE
+        ? aggregate.fieldTypes
+        : [];
+      this.push(expression, instruction.address, width);
+      return expression;
+    }
+
+    const copied: NWScriptExpression[] = [];
+    let slot = 0;
+    while (slot < width) {
+      const offset = startOffset + slot * 4;
+      const global = this.globalVariables.get(offset);
+      if (!global) {
+        const expression = NWScriptExpression.unknown(
+          `unresolved global frame field at BP ${offset}`
+        );
+        this.push(expression, instruction.address, 1);
+        copied.push(expression);
+        slot++;
+        continue;
+      }
+
+      if (global.dataType === NWScriptDataType.VECTOR && slot + 3 <= width) {
+        for (const component of ['x', 'y', 'z']) {
+          const expression = NWScriptExpression.variable(
+            `${global.name}.${component}`,
+            NWScriptDataType.FLOAT,
+            true
+          );
+          this.push(expression, instruction.address, 1);
+          copied.push(expression);
+        }
+        slot += 3;
+        continue;
+      }
+
+      const expression = NWScriptExpression.variable(
+        global.name,
+        global.dataType,
+        true
+      );
+      this.push(expression, instruction.address, 1);
+      copied.push(expression);
+      slot++;
+    }
+
+    if (
+      width === 3 &&
+      copied.length === 3 &&
+      copied.every(expression => expression.dataType === NWScriptDataType.FLOAT)
+    ) {
+      return NWScriptExpression.vector(copied);
+    }
+    return NWScriptExpression.unknown(
+      `multi-slot global frame copy retained as ${copied.length} scalar fields`,
+      NWScriptDataType.STRUCTURE
+    );
   }
 
   /** Recover CPTOPSP copies of represented temporaries before inventing an `sp_*` variable. */
@@ -692,7 +994,19 @@ export class NWScriptStackSimulator {
    */
   private handleLocalWrite(instruction: NWScriptInstruction): NWScriptExpression | null {
     const slots = stackSlotsForByteSize(instruction.size ?? 4, 'CPDOWNSP');
-    return this.peekSlotsAsValue(slots, this.dataTypeForCopyWidth(instruction.size), instruction, 'CPDOWNSP value');
+    const targetIndex = this.getLocalVariableIndexAtStackPosition(
+      this.stackPointer + toSignedInt32(instruction.offset)
+    );
+    const identity = targetIndex === undefined
+      ? undefined
+      : this.frameVariableIdentities.get(targetIndex);
+    const dataType = identity?.dataType ?? (slots === 3 && targetIndex !== undefined &&
+      this.vectorLocalAllocationStarts.has(targetIndex)
+      ? NWScriptDataType.VECTOR
+      : slots > 1
+        ? NWScriptDataType.STRUCTURE
+        : this.localVariableInits[targetIndex ?? -1]?.dataType ?? NWScriptDataType.INTEGER);
+    return this.peekSlotsAsValue(slots, dataType, instruction, 'CPDOWNSP value');
   }
 
   /**
@@ -702,12 +1016,41 @@ export class NWScriptStackSimulator {
     const offsetSigned = toSignedInt32(instruction.offset);
     const global = this.globalVariables.get(offsetSigned);
     const slots = stackSlotsForByteSize(instruction.size ?? 4, 'CPDOWNBP');
+    const dataType = slots === 3 && global?.dataType === NWScriptDataType.VECTOR
+      ? NWScriptDataType.VECTOR
+      : slots > 1
+        ? NWScriptDataType.STRUCTURE
+        : global?.dataType ?? NWScriptDataType.INTEGER;
     const value = this.peekSlotsAsValue(
       slots,
-      global?.dataType ?? this.dataTypeForCopyWidth(instruction.size),
+      dataType,
       instruction,
       'CPDOWNBP value'
     );
+    const aggregate = this.globalAggregateLayouts.get(offsetSigned);
+    if (aggregate?.fieldTypes.length === slots) {
+      const target = NWScriptExpression.variable(
+        aggregate.name,
+        aggregate.dataType,
+        true
+      );
+      target.structureFieldTypes = aggregate.dataType === NWScriptDataType.STRUCTURE
+        ? aggregate.fieldTypes
+        : [];
+      return NWScriptExpression.assignment(target, value);
+    }
+    if (slots > 1 && value.type === NWScriptExpressionType.AGGREGATE) {
+      const assignments = value.components.map((component, slot) => {
+        const targetGlobal = this.globalVariables.get(offsetSigned + slot * 4);
+        const target = NWScriptExpression.variable(
+          targetGlobal?.name ?? this.generateVariableName(true, offsetSigned + slot * 4),
+          targetGlobal?.dataType ?? component.dataType,
+          true
+        );
+        return NWScriptExpression.assignment(target, component);
+      });
+      return NWScriptExpression.aggregate(assignments);
+    }
     const target = NWScriptExpression.variable(
       global?.name ?? this.generateVariableName(true, offsetSigned),
       global?.dataType ?? value.dataType,
@@ -727,7 +1070,11 @@ export class NWScriptStackSimulator {
     const slots = stackSlotsForByteSize(Math.abs(offset), 'MOVSP');
 
     if (offset < 0) {
-      this.discardSlots(slots, instruction, 'MOVSP cleanup');
+      this.discardedExpressions = this.discardSlots(
+        slots,
+        instruction,
+        'MOVSP cleanup'
+      ).map(item => item.expression);
       return;
     }
 
@@ -817,7 +1164,7 @@ export class NWScriptStackSimulator {
   private handleLocalIncrement(instruction: NWScriptInstruction): NWScriptExpression {
     const offsetSigned = toSignedInt32(instruction.offset);
     const targetPosition = this.stackPointer + offsetSigned;
-    const variableIndex = this.variableStackPositions.get(targetPosition);
+    const variableIndex = this.getLocalVariableIndexAtStackPosition(targetPosition);
     const init = variableIndex === undefined ? undefined : this.localVariableInits[variableIndex];
     const target = NWScriptExpression.variable(
       variableIndex === undefined ? this.generateVariableName(false, offsetSigned) : `localVar_${variableIndex}`,
@@ -849,13 +1196,11 @@ export class NWScriptStackSimulator {
       throw new NWScriptStackAnalysisError(instruction, 'INC/DEC target is not an integer');
     }
     const isIncrement = instruction.code === OP_INCISP || instruction.code === OP_INCIBP;
-    const value = NWScriptExpression.binaryOp(
-      isIncrement ? '+' : '-',
+    return NWScriptExpression.unaryOp(
+      isIncrement ? 'post++' : 'post--',
       target,
-      NWScriptExpression.constant(1, NWScriptDataType.INTEGER),
       NWScriptDataType.INTEGER
     );
-    return NWScriptExpression.assignment(target, value);
   }
 
   private popRequired(instruction: NWScriptInstruction, context: string): StackItem {
@@ -869,10 +1214,11 @@ export class NWScriptStackSimulator {
   private popTypedValue(
     dataType: NWScriptDataType,
     instruction: NWScriptInstruction,
-    context: string
+    context: string,
+    stackSlots?: number
   ): NWScriptExpression {
     return this.popSlotsAsValue(
-      Math.max(1, stackSlotsForDataType(dataType)),
+      Math.max(1, stackSlots ?? stackSlotsForDataType(dataType)),
       dataType,
       instruction,
       context
@@ -892,6 +1238,13 @@ export class NWScriptStackSimulator {
     const top = this.peek();
     if (top && top.slotWidth === slots) {
       const item = this.popRequired(instruction, context);
+      if (
+        item.expression.type === NWScriptExpressionType.VARIABLE &&
+        dataType !== NWScriptDataType.STRUCTURE
+      ) {
+        item.expression.dataType = dataType;
+        this.variableTypeObserver?.(item.expression.variableName, dataType);
+      }
       if (
         item.expression.dataType !== dataType &&
         item.expression.dataType !== NWScriptDataType.STRUCTURE &&
@@ -922,6 +1275,10 @@ export class NWScriptStackSimulator {
       return NWScriptExpression.vector(popped.reverse().map(item => item.expression));
     }
 
+    if (dataType === NWScriptDataType.STRUCTURE && popped.every(item => item.slotWidth === 1)) {
+      return NWScriptExpression.aggregate(popped.reverse().map(item => item.expression));
+    }
+
     if (slots === 1 && popped.length === 1) {
       return popped[0].expression;
     }
@@ -949,7 +1306,8 @@ export class NWScriptStackSimulator {
     return args;
   }
 
-  private discardSlots(slots: number, instruction: NWScriptInstruction, context: string): void {
+  private discardSlots(slots: number, instruction: NWScriptInstruction, context: string): StackItem[] {
+    const removed: StackItem[] = [];
     let discarded = 0;
     while (discarded < slots) {
       const item = this.popRequired(instruction, context);
@@ -960,7 +1318,9 @@ export class NWScriptStackSimulator {
           `${context} removes ${slots} slots through a ${item.slotWidth}-slot logical value`
         );
       }
+      removed.push(item);
     }
+    return removed;
   }
 
   private peekSlotsAsValue(
@@ -1022,6 +1382,47 @@ export class NWScriptStackSimulator {
 
     if (startIndex >= 0 && endIndex >= startIndex) {
       return items.slice(startIndex, endIndex).map(item => ({ ...item }));
+    }
+
+    const expanded = items.flatMap(item => {
+      let components: NWScriptExpression[] | undefined;
+      if (item.slotWidth === 3 && item.expression.dataType === NWScriptDataType.VECTOR) {
+        components = item.expression.components.length === 3
+          ? item.expression.components
+          : ['x', 'y', 'z'].map(component => NWScriptExpression.variable(
+              `${item.expression.toNSS()}.${component}`,
+              NWScriptDataType.FLOAT,
+              item.expression.isGlobal
+            ));
+      } else if (
+        item.expression.dataType === NWScriptDataType.STRUCTURE &&
+        item.expression.structureFieldTypes.length === item.slotWidth
+      ) {
+        components = item.expression.structureFieldTypes.map((dataType, field) =>
+          NWScriptExpression.variable(
+            `${item.expression.toNSS()}.field_${field}`,
+            dataType,
+            item.expression.isGlobal
+          )
+        );
+      }
+      if (!components) return [{ ...item }];
+      return components.map(expression => ({
+        expression,
+        address: item.address,
+        slotWidth: 1,
+      }));
+    });
+    if (
+      expanded.length !== items.length ||
+      expanded.some((item, index) => item.slotWidth !== items[index]?.slotWidth)
+    ) {
+      return this.sliceLogicalItemsBySlots(
+        expanded,
+        offsetSlots,
+        sizeSlots,
+        instruction
+      );
     }
 
     const dataType = sizeSlots === 3 ? NWScriptDataType.VECTOR : NWScriptDataType.STRUCTURE;
@@ -1089,8 +1490,32 @@ export class NWScriptStackSimulator {
     return this.stack.reduce((sum, item) => sum + item.slotWidth, 0);
   }
 
+  /**
+   * Resolve a local from the RSADD value physically present at a stack position. This remains
+   * path-sensitive when sibling scopes reuse the same numeric SP position; the position map is
+   * retained only as a fallback for partial simulations that do not carry the whole frame.
+   */
+  getLocalVariableIndexAtStackPosition(stackPosition: number): number | undefined {
+    const representedSlots = this.getStackSlotCount();
+    let cursor = this.stackPointer - representedSlots * 4;
+    for (const item of this.stack) {
+      const end = cursor + item.slotWidth * 4;
+      if (stackPosition >= cursor && stackPosition < end) {
+        const allocationIndex = this.localVariableAllocationIndices.get(item.address);
+        if (allocationIndex !== undefined) return allocationIndex;
+        break;
+      }
+      cursor = end;
+    }
+    return this.variableStackPositions.get(stackPosition);
+  }
+
   getDiagnostics(): readonly string[] {
     return this.diagnostics;
+  }
+
+  getDiscardedExpressions(): readonly NWScriptExpression[] {
+    return this.discardedExpressions;
   }
 
   /**
@@ -1113,6 +1538,10 @@ export class NWScriptStackSimulator {
    */
   getGlobalVariables(): Map<number, { name: string, dataType: NWScriptDataType }> {
     return this.globalVariables;
+  }
+
+  getGlobalAggregateLayouts(): Map<number, NWScriptGlobalAggregateLayout> {
+    return this.globalAggregateLayouts;
   }
   
   /**
@@ -1145,8 +1574,17 @@ export class NWScriptStackSimulator {
     this.basePointer = 0;
     this.stackSnapshots.clear();
     this.diagnostics = [];
+    this.discardedExpressions = [];
     this.functionParameters.clear();
     this.cptopspParameterOperands.clear();
+    // These maps may have been supplied by the converter and remain its canonical metadata.
+    // Detach rather than mutating them through a shared reference.
+    this.variableStackPositions = new Map();
+    this.localVariableAllocationIndices = new Map();
+    this.vectorLocalAllocationStarts = new Set();
+    this.structureLocalLayouts = new Map();
+    this.localVariableInits = [];
+    this.variableTypeObserver = undefined;
   }
 
   /** Save stack depth/SP/BP for re-entrant probing (e.g. switch discriminant extraction). */
@@ -1235,9 +1673,19 @@ export class NWScriptStackSimulator {
     this.cptopspParameterOperands.clear();
     for (const param of parameters) {
       if (param.resolvedViaSpOperand) {
-        this.cptopspParameterOperands.set(param.offset, { name: param.name, dataType: param.dataType });
+        this.cptopspParameterOperands.set(param.offset, {
+          name: param.name,
+          dataType: param.dataType,
+          stackSlots: param.stackSlots,
+          structureFieldTypes: param.structureFieldTypes,
+        });
       } else {
-        this.functionParameters.set(param.offset, { name: param.name, dataType: param.dataType });
+        this.functionParameters.set(param.offset, {
+          name: param.name,
+          dataType: param.dataType,
+          stackSlots: param.stackSlots,
+          structureFieldTypes: param.structureFieldTypes,
+        });
       }
     }
   }
@@ -1248,6 +1696,10 @@ export class NWScriptStackSimulator {
    */
   setGlobalVariables(globalVars: Map<number, { name: string, dataType: NWScriptDataType }>): void {
     this.globalVariables = globalVars;
+  }
+
+  setGlobalAggregateLayouts(layouts: Map<number, NWScriptGlobalAggregateLayout>): void {
+    this.globalAggregateLayouts = layouts;
   }
   
   /**
@@ -1264,6 +1716,32 @@ export class NWScriptStackSimulator {
    */
   setVariableStackPositions(positions: Map<number, number>): void {
     this.variableStackPositions = positions;
+  }
+
+  setLocalVariableAllocationIndices(indices: Map<number, number>): void {
+    this.localVariableAllocationIndices = indices;
+  }
+
+  setFrameVariableIdentities(identities: Map<number, NWScriptFrameVariableIdentity>): void {
+    this.frameVariableIdentities = identities;
+  }
+
+  setFrameAggregateIdentities(identities: Map<number, NWScriptFrameVariableIdentity>): void {
+    this.frameAggregateIdentities = identities;
+  }
+
+  setVectorLocalAllocationStarts(starts: Set<number>): void {
+    this.vectorLocalAllocationStarts = starts;
+  }
+
+  setStructureLocalLayouts(layouts: Map<number, NWScriptDataType[]>): void {
+    this.structureLocalLayouts = layouts;
+  }
+
+  setVariableTypeObserver(
+    observer?: (name: string, dataType: NWScriptDataType) => void
+  ): void {
+    this.variableTypeObserver = observer;
   }
   
   /**

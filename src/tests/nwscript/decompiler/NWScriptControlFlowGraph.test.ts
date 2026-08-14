@@ -27,7 +27,7 @@ function scriptWithSubroutineLoop(): NWScript {
     makeInstruction(OP_RETN, 6, 2),
     makeInstruction(OP_CONST, 20, 6),
     makeInstruction(OP_JZ, 26, 6, 12),
-    makeInstruction(OP_JMP, 32, 6, -12),
+    makeInstruction(OP_JMP, 32, 6, 0xfffffff4),
     makeInstruction(OP_RETN, 38, 2),
   ];
   instructions[2].integer = 1;

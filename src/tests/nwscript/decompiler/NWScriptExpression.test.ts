@@ -26,7 +26,8 @@ describe('NWScriptExpression NSS emission', () => {
   });
 
   test('unknown values remain visibly invalid instead of becoming a valid literal', () => {
-    expect(NWScriptExpression.unknown('underflow').toNSS()).toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__');
+    expect(NWScriptExpression.unknown('underflow').toNSS())
+      .toBe('__NCS_DECOMPILER_UNKNOWN_VALUE__ /* underflow */');
     expect(NWScriptExpression.constant(Number.NaN, NWScriptDataType.FLOAT).toNSS())
       .toBe('__NCS_DECOMPILER_NONFINITE_FLOAT__');
   });

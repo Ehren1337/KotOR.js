@@ -2,7 +2,7 @@ import { describe, expect, test } from '@jest/globals';
 import { NWScriptDataType } from '@/enums/nwscript/NWScriptDataType';
 import type { NWScript } from '@/nwscript/NWScript';
 import type { NWScriptInstruction } from '@/nwscript/NWScriptInstruction';
-import { OP_CONST, OP_CPDOWNSP, OP_MOVSP, OP_RSADD } from '@/nwscript/NWScriptOPCodes';
+import { OP_CONST, OP_CPDOWNSP, OP_MOVSP, OP_NOP, OP_RSADD } from '@/nwscript/NWScriptOPCodes';
 import { NWScriptLocalVariableAnalyzer } from '@/nwscript/decompiler/NWScriptLocalVariableAnalyzer';
 
 function linkedScript(instructions: NWScriptInstruction[]): NWScript {
@@ -58,5 +58,38 @@ describe('NWScriptLocalVariableAnalyzer', () => {
     expect(init.hasInitializer).toBe(true);
     expect(init.initialValue).toBe(0);
     expect(init.dataType).toBe(NWScriptDataType.OBJECT);
+  });
+
+  test('finds a valid initializer without an arbitrary instruction lookahead cap', () => {
+    const rsadd = {
+      code: OP_RSADD,
+      type: NWScriptDataType.INTEGER,
+      address: 0,
+    } as NWScriptInstruction;
+    const padding = Array.from({ length: 150 }, (_, index) => ({
+      code: OP_NOP,
+      type: 0,
+      address: 2 + index * 2,
+    } as NWScriptInstruction));
+    const write = {
+      code: OP_CPDOWNSP,
+      type: 1,
+      offset: -8,
+      size: 4,
+      address: 302,
+    } as NWScriptInstruction;
+    const cleanup = {
+      code: OP_MOVSP,
+      type: 0,
+      offset: -4,
+      address: 310,
+    } as NWScriptInstruction;
+
+    const [init] = new NWScriptLocalVariableAnalyzer(
+      linkedScript([rsadd, ...padding, write, cleanup])
+    ).analyze();
+
+    expect(init.hasInitializer).toBe(true);
+    expect(init.initializerWriteAddress).toBe(write.address);
   });
 });

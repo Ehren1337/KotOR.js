@@ -5,6 +5,7 @@ import type { NWScript } from "@/nwscript/NWScript";
 import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
 import { OP_ACTION, OP_ADD, OP_CONST, OP_CPTOPSP, OP_DESTRUCT, OP_JSR, OP_MOVSP, OP_MUL, OP_RSADD } from "@/nwscript/NWScriptOPCodes";
 import {
+  inferSubroutineCallAbiFromCallSites,
   inferSubroutineReturnTypeFromCallSites,
   instructionForwardStackSlotDelta,
 } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
@@ -15,6 +16,11 @@ import {
   stackSlotsForDataType,
   toSignedInt32,
 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
+import { NWScriptStackSimulator } from "@/nwscript/decompiler/NWScriptStackSimulator";
+import { NWScriptAST } from "@/nwscript/decompiler/NWScriptAST";
+import { NWScriptExpression } from "@/nwscript/decompiler/NWScriptExpression";
+import { refineNwscriptAstFunctionParameterTypes } from "@/nwscript/decompiler/NWScriptDecompilerTypeRefinementPass";
+import type { NWScriptFunction } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
 
 describe('canonical NCS opcode semantics', () => {
   test('tracks physical widths for scalar, vector, void, and action values', () => {
@@ -88,6 +94,81 @@ describe('canonical NCS opcode semantics', () => {
     expect(toSignedInt32(12)).toBe(12);
   });
 
+  test('reports scalar parameter types discovered at typed consumers', () => {
+    const simulator = new NWScriptStackSimulator();
+    const observations: Array<[string, NWScriptDataType]> = [];
+    simulator.setVariableTypeObserver((name, dataType) => observations.push([name, dataType]));
+    simulator.initializeFunctionFrame(NWScriptDataType.VOID, [{
+      name: 'intParam1',
+      dataType: NWScriptDataType.INTEGER,
+      offset: -4,
+      resolvedViaSpOperand: true,
+    }]);
+    simulator.processInstruction({
+      code: OP_CPTOPSP,
+      codeName: 'CPTOPSP',
+      address: 0,
+      offset: 0xfffffffc,
+      size: 4,
+    } as NWScriptInstruction);
+    simulator.processInstruction({
+      code: OP_ACTION,
+      codeName: 'ACTION',
+      address: 8,
+      argCount: 1,
+      actionDefinition: {
+        name: 'GetIsObjectValid',
+        comment: '',
+        type: NWScriptDataType.INTEGER,
+        args: [NWScriptDataType.OBJECT],
+      },
+    } as NWScriptInstruction);
+    expect(observations).toContainEqual(['intParam1', NWScriptDataType.OBJECT]);
+  });
+
+  test('propagates late callee type evidence through forwarded user parameters', () => {
+    const callerParameter = { name: 'intParam1', dataType: NWScriptDataType.INTEGER, offset: -4 };
+    const calleeParameter = { name: 'intParam1', dataType: NWScriptDataType.OBJECT, offset: -4 };
+    const callerBody = NWScriptAST.createBlock([
+      NWScriptAST.createExpressionStatement(
+        NWScriptExpression.functionCall(
+          'sub2',
+          [NWScriptExpression.variable('intParam1', NWScriptDataType.INTEGER)],
+          NWScriptDataType.VOID
+        )
+      ),
+    ]);
+    const calleeBody = NWScriptAST.createBlock([]);
+    const caller = NWScriptAST.createFunction(
+      'sub1',
+      NWScriptDataType.VOID,
+      [{ name: 'intParam1', type: NWScriptDataType.INTEGER }],
+      callerBody
+    );
+    const callee = NWScriptAST.createFunction(
+      'sub2',
+      NWScriptDataType.VOID,
+      [{ name: 'intParam1', type: NWScriptDataType.INTEGER }],
+      calleeBody
+    );
+    const ast = NWScriptAST.createProgram([], [caller, callee]);
+    const functions = [
+      { name: 'sub1', parameters: [callerParameter] },
+      { name: 'sub2', parameters: [calleeParameter] },
+    ] as NWScriptFunction[];
+
+    refineNwscriptAstFunctionParameterTypes(ast, functions);
+
+    expect(caller.parameters[0].type).toBe(NWScriptDataType.OBJECT);
+    expect(callee.parameters[0].type).toBe(NWScriptDataType.OBJECT);
+    expect(callerParameter.dataType).toBe(NWScriptDataType.OBJECT);
+    expect(callerBody.statements[0]).toMatchObject({
+      expression: {
+        arguments: [{ dataType: NWScriptDataType.OBJECT }],
+      },
+    });
+  });
+
   test('infers a scalar user-function return reservation below its arguments', () => {
     const reservation = { code: OP_RSADD, type: NWScriptDataType.FLOAT, address: 0 } as NWScriptInstruction;
     const argument = {
@@ -107,6 +188,19 @@ describe('canonical NCS opcode semantics', () => {
 
     expect(inferSubroutineReturnTypeFromCallSites(script, 100, 1, 4))
       .toBe(NWScriptDataType.FLOAT);
+    expect(inferSubroutineCallAbiFromCallSites(script, 100, 4)).toEqual({
+      parameterSlots: 1,
+      returnType: NWScriptDataType.FLOAT,
+    });
+
+    // Decoders may expose a backward relative operand as its raw unsigned uint32 value.
+    jsr.address = 200;
+    jsr.offset = 0xffffff9c;
+    script.instructions = new Map([[jsr.address, jsr]]);
+    expect(inferSubroutineCallAbiFromCallSites(script, 100, 4)).toEqual({
+      parameterSlots: 1,
+      returnType: NWScriptDataType.FLOAT,
+    });
   });
 
   test('infers a three-slot vector user-function return reservation', () => {

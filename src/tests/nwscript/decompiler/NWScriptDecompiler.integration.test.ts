@@ -9,6 +9,7 @@ import {
   OP_CPDOWNSP,
   OP_CPTOPBP,
   OP_CPTOPSP,
+  OP_INCISP,
   OP_JMP,
   OP_JSR,
   OP_JZ,
@@ -275,6 +276,39 @@ describe('NWScriptDecompiler integration', () => {
     expect(source).toContain('PrintInt(localVar_0);');
     expect(source.match(/localVar_0 = 5/g)).toHaveLength(1);
     expect(source).not.toContain('__NCS_DECOMPILER_UNKNOWN_VALUE__');
+  });
+
+  test('recovers an O3 mutable CONST stack slot as a declared local', () => {
+    const printInt: INWScriptDefAction = {
+      name: 'PrintInt',
+      comment: '',
+      type: NWScriptDataType.VOID,
+      args: [NWScriptDataType.INTEGER],
+    };
+    const script = linkedScript([
+      instruction(OP_JSR, 0, 0, 6, { offset: 20 }),
+      instruction(OP_RETN, 0, 6, 2),
+
+      instruction(OP_CONST, NWScriptDataType.INTEGER, 20, 6, { integer: 0 }),
+      instruction(OP_CPTOPSP, 1, 26, 8, { offset: -4, size: 4 }),
+      instruction(OP_INCISP, NWScriptDataType.INTEGER, 34, 6, { offset: -8 }),
+      instruction(OP_MOVSP, 0, 40, 6, { offset: -4 }),
+      instruction(OP_CPTOPSP, 1, 46, 8, { offset: -4, size: 4 }),
+      instruction(OP_ACTION, 0, 54, 5, {
+        action: 906,
+        argCount: 1,
+        actionDefinition: printInt,
+      }),
+      instruction(OP_MOVSP, 0, 59, 6, { offset: -4 }),
+      instruction(OP_RETN, 0, 65, 2),
+    ]);
+
+    const source = new NWScriptDecompiler(script).decompile();
+
+    expect(source).toContain('int localVar_0 = 0;');
+    expect(source).toContain('localVar_0++;');
+    expect(source).toContain('PrintInt(localVar_0);');
+    expect(source).not.toContain('sp_-');
   });
 
   test('groups three RSADDF slots into one vector local when 12-byte accesses prove it', () => {
