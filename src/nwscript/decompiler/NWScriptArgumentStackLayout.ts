@@ -50,6 +50,16 @@ import {
   OP_DECIBP,
   OP_INCIBP,
 } from "@/nwscript/NWScriptOPCodes";
+import {
+  actionArgumentStackSlots,
+  getArithmeticTypeSignature,
+  getComparisonTypeSignature,
+  getUnaryDataType,
+  stackSlotsForByteSize,
+  stackBytesForDataType,
+  stackSlotsForDataType,
+  toSignedInt32,
+} from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
 
 const HARD_STOP_BACKWARDS = new Set<number>([
   OP_JSR,
@@ -60,26 +70,32 @@ const HARD_STOP_BACKWARDS = new Set<number>([
   OP_ACTION,
 ]);
 
-/** Signed int32 from raw offset field */
-function signedInt32(off: number): number {
-  return off > 0x7fffffff ? off - 0x100000000 : off;
-}
-
 /**
- * Approximate dword stack delta (effect on SP-relative stack depth for scalar-heavy code).
+ * Dword stack delta used for caller/callee signature inference.
  * Returns null when the opcode cannot be modeled safely for inference.
  */
 export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): number | null {
   switch (ins.code) {
     case OP_CONST:
-    case OP_CPTOPSP:
-    case OP_CPTOPBP:
     case OP_RSADD:
       return 1;
 
+    case OP_CPTOPSP:
+    case OP_CPTOPBP:
+      try {
+        return stackSlotsForByteSize(ins.size ?? 4, ins.codeName || 'CPTOP');
+      } catch {
+        return null;
+      }
+
     case OP_MOVSP:
       if (ins.offset === undefined) return null;
-      return signedInt32(ins.offset) / 4;
+      try {
+        const offset = toSignedInt32(ins.offset);
+        return Math.sign(offset) * stackSlotsForByteSize(Math.abs(offset), 'MOVSP');
+      } catch {
+        return null;
+      }
 
     case OP_SAVEBP:
     case OP_RESTOREBP:
@@ -87,6 +103,8 @@ export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): numb
     case OP_STORE_STATEALL:
     case OP_NOP:
     case OP_T:
+    case OP_JMP:
+    case OP_RETN:
     case OP_CPDOWNSP:
     case OP_CPDOWNBP:
     case OP_DECISP:
@@ -101,7 +119,12 @@ export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): numb
       return 0;
 
     case OP_DESTRUCT:
-      return null;
+      try {
+        return -stackSlotsForByteSize(ins.sizeToDestroy, 'DESTRUCT') +
+          stackSlotsForByteSize(ins.sizeOfElementToSave, 'DESTRUCT');
+      } catch {
+        return null;
+      }
 
     case OP_JZ:
     case OP_JNZ:
@@ -111,7 +134,13 @@ export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): numb
     case OP_SUB:
     case OP_MUL:
     case OP_DIV:
-    case OP_MODII:
+    case OP_MODII: {
+      const signature = getArithmeticTypeSignature(ins.code, ins.type);
+      if (!signature) return null;
+      return -stackSlotsForDataType(signature.left) - stackSlotsForDataType(signature.right) +
+        stackSlotsForDataType(signature.result);
+    }
+
     case OP_LOGANDII:
     case OP_LOGORII:
     case OP_BOOLANDII:
@@ -129,20 +158,22 @@ export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): numb
     case OP_LT:
     case OP_LEQ:
       if (ins.type === NWScriptDataType.STRUCTURE) {
-        return null;
+        try {
+          const slots = stackSlotsForByteSize(ins.sizeOfStructure, 'structure comparison');
+          return -(slots * 2) + 1;
+        } catch {
+          return null;
+        }
       }
-      return -1;
+      const signature = getComparisonTypeSignature(ins.code, ins.type);
+      if (!signature) return null;
+      return -stackSlotsForDataType(signature.left) - stackSlotsForDataType(signature.right) + 1;
 
     case OP_ACTION: {
       const raw = ins.argCount ?? 0;
-      const nargs = Math.min(Math.max(raw, 0), 48);
-      const ret =
-        ins.actionDefinition !== undefined &&
-        ins.actionDefinition.type !== undefined &&
-        ins.actionDefinition.type !== NWScriptDataType.VOID
-          ? 1
-          : 0;
-      return -nargs + ret;
+      const argSlots = actionArgumentStackSlots(ins.actionDefinition, raw);
+      if (argSlots === null) return null;
+      return -argSlots + stackSlotsForDataType(ins.actionDefinition?.type);
     }
 
     case OP_JSR:
@@ -169,22 +200,6 @@ function collectChainBeforeJsr(jsr: NWScriptInstruction): NWScriptInstruction[] 
   return rev;
 }
 
-/** Legacy tally: pushes only (over-counts CPTOP + CONST separated by folded binops — kept as fallback when delta sum fails mid-chain). */
-function legacyPushTailCount(chain: NWScriptInstruction[]): number {
-  let n = 0;
-  for (const ins of chain) {
-    if (
-      ins.code === OP_CONST ||
-      ins.code === OP_CPTOPSP ||
-      ins.code === OP_CPTOPBP ||
-      ins.code === OP_RSADD
-    ) {
-      n++;
-    }
-  }
-  return n;
-}
-
 /**
  * Net dword slots on caller stack consumed as arguments immediately before JSR forward execution.
  */
@@ -194,7 +209,9 @@ function inferCallerArgSlotsBeforeJsr(jsr: NWScriptInstruction): number {
   for (const ins of chain) {
     const d = instructionForwardStackSlotDelta(ins);
     if (d === null) {
-      return Math.max(0, legacyPushTailCount(chain));
+      // An unknown opcode/type makes the linear delta unprovable. Do not turn every prior push
+      // into a fabricated argument list; callee access analysis remains the authoritative source.
+      return 0;
     }
     delta += d;
   }
@@ -205,24 +222,289 @@ function inferCallerArgSlotsBeforeJsr(jsr: NWScriptInstruction): number {
  * NWScript/KotOr stack spill size per type (matches {@link NWScriptCompiler.getDataTypeStackLength}).
  */
 export function nwscriptDataTypeStackBytes(dataType: NWScriptDataType): number {
-  switch (dataType) {
-    case NWScriptDataType.VOID:
-      return 0;
-    case NWScriptDataType.VECTOR:
-      return 12;
-    default:
-      return 4;
-  }
+  return stackBytesForDataType(dataType);
 }
 
-/** Total bytes callee expects for incoming parameters (sum of spills in declaration order = offset ascending). */
+/** Total bytes callee expects for incoming parameters. */
 export function nwscriptParametersTotalBytes(parameters: NWScriptFunctionParameter[]): number {
-  const sorted = [...parameters].sort((a, b) => a.offset - b.offset);
   let sum = 0;
-  for (const p of sorted) {
+  for (const p of parameters) {
     sum += nwscriptDataTypeStackBytes(p.dataType);
   }
   return sum;
+}
+
+function rsaddTypeToDataType(type: number | undefined): NWScriptDataType | null {
+  const dataType = getUnaryDataType(type);
+  return dataType === NWScriptDataType.VECTOR || dataType === NWScriptDataType.STRUCTURE
+    ? null
+    : dataType;
+}
+
+const RETURN_RESERVATION_BACKWARD_STOPS = new Set<number>([
+  OP_JSR,
+  OP_JZ,
+  OP_JNZ,
+  OP_JMP,
+  OP_RETN,
+]);
+
+export interface JsrReturnReservation {
+  dataType: NWScriptDataType;
+  instructions: NWScriptInstruction[];
+}
+
+function instructionResultDataType(instruction: NWScriptInstruction): NWScriptDataType | null {
+  switch (instruction.code) {
+    case OP_CONST:
+      return getUnaryDataType(instruction.type);
+    case OP_CPTOPSP:
+    case OP_CPTOPBP:
+      return instruction.size === 12 ? NWScriptDataType.VECTOR : null;
+    case OP_ACTION:
+      return instruction.actionDefinition?.type ?? null;
+    case OP_ADD:
+    case OP_SUB:
+    case OP_MUL:
+    case OP_DIV:
+    case OP_MODII:
+      return getArithmeticTypeSignature(instruction.code, instruction.type)?.result ?? null;
+    case OP_EQUAL:
+    case OP_NEQUAL:
+    case OP_GEQ:
+    case OP_GT:
+    case OP_LT:
+    case OP_LEQ:
+    case OP_LOGANDII:
+    case OP_LOGORII:
+    case OP_BOOLANDII:
+    case OP_INCORII:
+    case OP_EXCORII:
+    case OP_SHLEFTII:
+    case OP_SHRIGHTII:
+    case OP_USHRIGHTII:
+      return NWScriptDataType.INTEGER;
+    case OP_NEG:
+    case OP_COMPI:
+    case OP_NOTI:
+      return getUnaryDataType(instruction.type);
+    default:
+      return null;
+  }
+}
+
+/** Recover formal argument types from the expression roots immediately before a JSR. */
+export function inferJsrArgumentTypes(
+  jsr: NWScriptInstruction,
+  parameters: NWScriptFunctionParameter[]
+): Array<NWScriptDataType | null> | null {
+  let cursor: NWScriptInstruction | null | undefined = jsr.prevInstr;
+  const inferred: Array<NWScriptDataType | null> = [];
+
+  // Formal one is nearest TOS and therefore has the least-negative frame offset.
+  for (const parameter of [...parameters].sort((left, right) => right.offset - left.offset)) {
+    if (!cursor) return null;
+    const expectedSlots = Math.max(1, stackSlotsForDataType(parameter.dataType));
+    const rootType = expectedSlots === 3
+      ? NWScriptDataType.VECTOR
+      : instructionResultDataType(cursor);
+    let contribution = 0;
+    let guard = 512;
+
+    while (contribution < expectedSlots && cursor && guard-- > 0) {
+      if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code)) {
+        return null;
+      }
+      const delta = instructionForwardStackSlotDelta(cursor);
+      if (delta === null) return null;
+      contribution += delta;
+      cursor = cursor.prevInstr;
+    }
+
+    if (contribution !== expectedSlots) return null;
+    inferred.push(rootType === NWScriptDataType.VOID ? null : rootType);
+  }
+
+  return inferred;
+}
+
+/**
+ * Recover a call's formal argument layout when only the callee's total cleanup width is known.
+ * The instruction immediately before JSR produces formal one because the compiler pushes
+ * source arguments in reverse order. RSADD is deliberately rejected as an argument root: it is
+ * a frame allocation or result reservation, never a compiled argument expression.
+ */
+export function inferJsrArgumentTypesByTotalSlots(
+  jsr: NWScriptInstruction,
+  totalSlots: number
+): NWScriptDataType[] | null {
+  if (!Number.isInteger(totalSlots) || totalSlots < 0) return null;
+  if (totalSlots === 0) return [];
+
+  let cursor: NWScriptInstruction | null | undefined = jsr.prevInstr;
+  const inferred: NWScriptDataType[] = [];
+  let totalConsumed = 0;
+  let outerGuard = 128;
+
+  while (totalConsumed < totalSlots && cursor && outerGuard-- > 0) {
+    if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code) || cursor.code === OP_RSADD) {
+      return null;
+    }
+
+    const rootType = instructionResultDataType(cursor);
+    let rootSlots: number;
+    let dataType: NWScriptDataType;
+    if (rootType !== null && rootType !== NWScriptDataType.VOID) {
+      dataType = rootType;
+      rootSlots = stackSlotsForDataType(rootType);
+    } else if (cursor.code === OP_CPTOPSP || cursor.code === OP_CPTOPBP) {
+      try {
+        rootSlots = stackSlotsForByteSize(cursor.size ?? 4, cursor.codeName || 'CPTOP');
+      } catch {
+        return null;
+      }
+      dataType = rootSlots === 3 ? NWScriptDataType.VECTOR : NWScriptDataType.INTEGER;
+    } else {
+      return null;
+    }
+
+    if (rootSlots <= 0 || totalConsumed + rootSlots > totalSlots) return null;
+
+    let contribution = 0;
+    let expressionGuard = 512;
+    while (contribution < rootSlots && cursor && expressionGuard-- > 0) {
+      if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code) || cursor.code === OP_RSADD) {
+        return null;
+      }
+      const delta = instructionForwardStackSlotDelta(cursor);
+      if (delta === null) return null;
+      contribution += delta;
+      cursor = cursor.prevInstr;
+    }
+    if (contribution !== rootSlots) return null;
+
+    inferred.push(dataType);
+    totalConsumed += rootSlots;
+  }
+
+  return totalConsumed === totalSlots ? inferred : null;
+}
+
+/** Locate the exact RSADD instruction(s) reserved for a user-call result. */
+export function findJsrReturnReservation(
+  jsr: NWScriptInstruction,
+  parameterSlots: number,
+  returnBytes: number
+): JsrReturnReservation | null {
+  let cursor: NWScriptInstruction | null | undefined = jsr.prevInstr;
+  let contribution = 0;
+  let guard = 512;
+
+  while (contribution < parameterSlots && cursor && guard-- > 0) {
+    if (RETURN_RESERVATION_BACKWARD_STOPS.has(cursor.code)) {
+      return null;
+    }
+    const delta = instructionForwardStackSlotDelta(cursor);
+    if (delta === null) {
+      return null;
+    }
+    contribution += delta;
+    cursor = cursor.prevInstr;
+  }
+
+  if (contribution !== parameterSlots || !cursor) {
+    return null;
+  }
+
+  if (returnBytes === 12) {
+    const instructions: NWScriptInstruction[] = [];
+    for (let component = 0; component < 3; component += 1) {
+      if (cursor?.code !== OP_RSADD || rsaddTypeToDataType(cursor.type) !== NWScriptDataType.FLOAT) {
+        return null;
+      }
+      instructions.push(cursor);
+      cursor = cursor.prevInstr;
+    }
+    return { dataType: NWScriptDataType.VECTOR, instructions };
+  }
+
+  if (returnBytes !== 4 || cursor.code !== OP_RSADD) {
+    return null;
+  }
+  const dataType = rsaddTypeToDataType(cursor.type);
+  return dataType === null ? null : { dataType, instructions: [cursor] };
+}
+
+/**
+ * Recover the caller-side return reservation immediately below a JSR's argument expressions.
+ * A result is accepted only when every considered call site has the same reservation. This avoids
+ * classifying an unrelated local RSADD before a void no-argument call as a function result.
+ */
+export function inferSubroutineReturnTypeFromCallSites(
+  script: NWScript,
+  targetEntryPc: number,
+  parameterSlots: number,
+  returnBytes: number,
+  shouldCountJsr?: (instr: NWScriptInstruction) => boolean
+): NWScriptDataType {
+  if (returnBytes <= 0 || returnBytes % 4 !== 0) {
+    return NWScriptDataType.VOID;
+  }
+
+  let inferred: NWScriptDataType | null = null;
+  let callCount = 0;
+  for (const instruction of script.instructions.values()) {
+    if (
+      instruction.code !== OP_JSR ||
+      instruction.offset === undefined ||
+      instruction.address + instruction.offset !== targetEntryPc ||
+      (shouldCountJsr && !shouldCountJsr(instruction))
+    ) {
+      continue;
+    }
+
+    callCount += 1;
+    const atCall = findJsrReturnReservation(
+      instruction,
+      parameterSlots,
+      returnBytes
+    )?.dataType ?? null;
+    if (atCall === null || (inferred !== null && atCall !== inferred)) {
+      return NWScriptDataType.VOID;
+    }
+    inferred = atCall;
+  }
+
+  return callCount > 0 && inferred !== null ? inferred : NWScriptDataType.VOID;
+}
+
+/** RSADD addresses that belong to user-function result reservations, not local declarations. */
+export function collectJsrReturnReservationAddresses(
+  functions: NWScriptFunction[],
+  script: NWScript
+): Set<number> {
+  const addresses = new Set<number>();
+  const byEntry = new Map(
+    functions
+      .filter(func => func.returnType !== NWScriptDataType.VOID)
+      .map(func => [func.entryBlock.startInstruction.address, func] as const)
+  );
+
+  for (const instruction of script.instructions.values()) {
+    if (instruction.code !== OP_JSR || instruction.offset === undefined) continue;
+    const func = byEntry.get(instruction.address + instruction.offset);
+    if (!func) continue;
+    const reservation = findJsrReturnReservation(
+      instruction,
+      nwscriptParametersTotalBytes(func.parameters) / 4,
+      nwscriptDataTypeStackBytes(func.returnType)
+    );
+    for (const reserved of reservation?.instructions ?? []) {
+      addresses.add(reserved.address);
+    }
+  }
+
+  return addresses;
 }
 
 /**
@@ -276,7 +558,12 @@ export function buildJsrCalleeArgSlotsByEntryPc(functions: NWScriptFunction[], s
     const entryPc = f.entryBlock.startInstruction.address;
     const bytes = nwscriptParametersTotalBytes(f.parameters);
     const analyzed = Math.floor(bytes / 4);
-    const inferred = map.get(entryPc) ?? 0;
+    // The raw caller delta includes the result reservation placed below argument expressions.
+    // Remove it before using call-site inference as a fallback for an otherwise untyped callee.
+    const inferred = Math.max(
+      0,
+      (map.get(entryPc) ?? 0) - stackSlotsForDataType(f.returnType)
+    );
     let slots = analyzed;
     if (analyzed > 0 && inferred > 0) {
       slots = Math.min(analyzed, inferred);
@@ -293,6 +580,7 @@ export function buildJsrCalleeArgSlotsByEntryPc(functions: NWScriptFunction[], s
 export interface JsrUserRoutineMeta {
   name: string;
   returnType: NWScriptDataType;
+  parameters: NWScriptFunctionParameter[];
 }
 
 /**
@@ -308,6 +596,7 @@ export function buildJsrUserRoutineMetaByEntryPc(functions: NWScriptFunction[]):
     map.set(f.entryBlock.startInstruction.address, {
       name: f.name,
       returnType: f.returnType,
+      parameters: [...f.parameters].sort((a, b) => b.offset - a.offset),
     });
   }
   return map;

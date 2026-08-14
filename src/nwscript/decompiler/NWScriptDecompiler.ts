@@ -10,6 +10,7 @@ import { NWScriptAST } from "@/nwscript/decompiler/NWScriptAST";
 import type { NWScriptProgramNode } from "@/nwscript/decompiler/NWScriptAST";
 import { nwscriptDecompilerDebug, nwscriptDecompilerDebugEnabled } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
 import { applyNwscriptDecompilerCleanup } from "@/nwscript/decompiler/NWScriptDecompilerCleanupPass";
+import { collectJsrReturnReservationAddresses } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
 
 /** Result of {@link NWScriptDecompiler.buildProgramAst} (phases through AST + cleanup, no NSS emit). */
 export type NWScriptBuildProgramAstResult =
@@ -45,8 +46,7 @@ export class NWScriptDecompiler {
    *
    * Pipeline (Option A — ControlNode-first), loosely mirroring NCSDecomp phases:
    * CFG (positions + edges + unreachability) ≈ SetPositions / SetDestinations / SetDeadCode;
-   * Natural loops use dominance back edges plus procedure-local backward unconditional {@code JMP}
-   * hints when entry dominance misses a latch (see {@link NWScriptControlFlowGraph.procedureLatchEdges});
+   * Natural loops use dominance back edges computed independently for each procedure;
    * {@link NWScriptFunctionAnalyzer} ≈ prototype + arity; structure builder ≈ control recovery;
    * AST + cleanup hook ≈ MainPass + CleanupPass.
    */
@@ -109,13 +109,17 @@ export class NWScriptDecompiler {
     this.globalVarAnalyzer = new NWScriptGlobalVariableAnalyzer(this.script, this.cfg);
     const globalInits = this.globalVarAnalyzer.analyze();
 
-    nwscriptDecompilerDebug('Analyzing local variables...');
-    this.localVarAnalyzer = new NWScriptLocalVariableAnalyzer(this.script, globalInits);
-    const localInits = this.localVarAnalyzer.analyze();
-
     nwscriptDecompilerDebug('Analyzing functions...');
     this.functionAnalyzer = new NWScriptFunctionAnalyzer(this.cfg, globalInits);
     const functions = this.functionAnalyzer.analyze();
+
+    nwscriptDecompilerDebug('Analyzing local variables...');
+    this.localVarAnalyzer = new NWScriptLocalVariableAnalyzer(
+      this.script,
+      globalInits,
+      collectJsrReturnReservationAddresses(functions, this.script)
+    );
+    const localInits = this.localVarAnalyzer.analyze();
 
     nwscriptDecompilerDebug('Building control structures...');
     this.structureBuilder = new NWScriptControlStructureBuilder(this.cfg);

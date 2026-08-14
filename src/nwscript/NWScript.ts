@@ -22,6 +22,13 @@ import { INWScriptDefAction } from "@/interface/nwscript/INWScriptDefAction";
 import { NWScriptDefK2 } from "@/nwscript/NWScriptDefK2";
 import { NWScriptDefK1 } from "@/nwscript/NWScriptDefK1";
 
+export interface NWScriptLoadOptions {
+  /** Explicit bytecode dialect. Defaults to the active game for runtime compatibility. */
+  game?: GameEngineType;
+  /** Optional action table override for tools that run without GameState. */
+  actionsMap?: { [key: number]: INWScriptDefAction };
+}
+
 /**
  * NWScript class.
  * 
@@ -107,9 +114,11 @@ export class NWScript {
    */
   controlFlowGraph: NWScriptControlFlowGraph | null = null;
 
-  constructor ( dataOrFile?: string|Uint8Array ){
-    this.actionsMap = (GameState.GameKey == GameEngineType.TSL) ? 
-      NWScriptDefK2.Actions : NWScriptDefK1.Actions;
+  constructor ( dataOrFile?: string|Uint8Array, options: NWScriptLoadOptions = {} ){
+    const game = options.game ?? GameState.GameKey;
+    this.actionsMap = options.actionsMap ?? (
+      game === GameEngineType.TSL ? NWScriptDefK2.Actions : NWScriptDefK1.Actions
+    );
 
     this.instances = [];
     this.isGlobal = false;
@@ -287,7 +296,7 @@ export class NWScript {
    * @returns {NWScript}
    */
   clone(){
-    const script = new NWScript();
+    const script = new NWScript(undefined, { actionsMap: this.actionsMap });
     script.name = this.name;
     script.instructions = new Map(this.instructions);
     return script;

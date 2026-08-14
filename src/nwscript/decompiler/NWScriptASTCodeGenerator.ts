@@ -209,8 +209,8 @@ export class NWScriptASTCodeGenerator {
    * Generate assignment
    */
   private generateAssignment(assign: NWScriptAssignmentNode): string {
-    const prefix = assign.isGlobal ? 'GLOBAL.' : '';
-    return `${prefix}${assign.variable} = ${assign.value.toNSS()};`;
+    // NSS globals are referenced by identifier; "GLOBAL." is not valid source syntax.
+    return `${assign.variable} = ${assign.value.toNSS()};`;
   }
 
   /**
@@ -442,4 +442,3 @@ export class NWScriptASTCodeGenerator {
     return this.indentString.repeat(this.indentLevel);
   }
 }
-

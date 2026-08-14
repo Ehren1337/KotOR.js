@@ -4,6 +4,15 @@ import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
 import type { NWScriptFunctionParameter } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
 import type { JsrUserRoutineMeta } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
 import {
+  getArithmeticTypeSignature,
+  getBinaryResultDataType,
+  getComparisonTypeSignature,
+  getUnaryDataType,
+  stackSlotsForByteSize,
+  stackSlotsForDataType,
+  toSignedInt32,
+} from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
+import {
   OP_CONST, OP_ACTION, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_MODII,
   OP_EQUAL, OP_NEQUAL, OP_GT, OP_GEQ, OP_LT, OP_LEQ,
   OP_LOGANDII, OP_LOGORII, OP_BOOLANDII, OP_INCORII, OP_EXCORII,
@@ -12,14 +21,32 @@ import {
   OP_CPTOPBP, OP_CPTOPSP, OP_CPDOWNSP, OP_CPDOWNBP,
   OP_MOVSP, OP_DESTRUCT, OP_RSADD,
   OP_DECISP, OP_INCISP, OP_DECIBP, OP_INCIBP,
-  OP_JSR,
+  OP_JSR, OP_JZ, OP_JNZ,
 } from "@/nwscript/NWScriptOPCodes";
 /**
  * Represents an item on the stack
  */
-interface StackItem {
+export interface StackItem {
   expression: NWScriptExpression;
   address: number; // Instruction address that created this item
+  /** Number of physical four-byte NCS stack slots represented by this logical value. */
+  slotWidth: number;
+}
+
+export interface NWScriptStackSnapshot {
+  stack: StackItem[];
+  stackPointer: number;
+  basePointer: number;
+}
+
+export class NWScriptStackAnalysisError extends Error {
+  readonly instructionAddress: number;
+
+  constructor(instruction: NWScriptInstruction, message: string) {
+    super(`0x${instruction.address.toString(16).padStart(8, '0')} ${instruction.codeName || `OP_${instruction.code}`}: ${message}`);
+    this.name = 'NWScriptStackAnalysisError';
+    this.instructionAddress = instruction.address;
+  }
 }
 
 /**
@@ -91,6 +118,9 @@ export class NWScriptStackSimulator {
   /** DelayCommand ACTION PC → void script callee for second argument (STORE_STATE thunk). */
   private delayCommandThunkSecondArg: Map<number, NWScriptExpression> = new Map();
 
+  /** Recoverable warnings. Stack underflow and malformed widths throw instead. */
+  private diagnostics: string[] = [];
+
   setJsrCalleeArgSlotsByEntryPc(map: Map<number, number>): void {
     this.jsrCalleeArgSlotsByEntryPc = map;
   }
@@ -101,6 +131,46 @@ export class NWScriptStackSimulator {
 
   setDelayCommandThunkSecondArg(map: Map<number, NWScriptExpression>): void {
     this.delayCommandThunkSecondArg = map;
+  }
+
+  /**
+   * Seed the procedure-entry value stack from the NWScript calling convention.
+   *
+   * A non-void caller reserves the result first, then pushes formal arguments in reverse order;
+   * therefore argument one is at TOS when the callee starts. Keeping those physical values in
+   * the model lets the callee's tail MOVSP remove arguments without underflowing an otherwise
+   * empty analysis stack.
+   *
+   * @returns entry SP relative to the bottom of this procedure frame, in bytes.
+   */
+  initializeFunctionFrame(
+    returnType: NWScriptDataType,
+    parameters: NWScriptFunctionParameter[]
+  ): number {
+    this.stack = [];
+    this.stackPointer = 0;
+
+    const returnSlots = stackSlotsForDataType(returnType);
+    if (returnSlots > 0) {
+      this.push(
+        NWScriptExpression.unknown('caller return-value reservation', returnType),
+        -1,
+        returnSlots
+      );
+    }
+
+    const formals = [...parameters].sort((left, right) => right.offset - left.offset);
+    for (const parameter of formals.reverse()) {
+      const slots = stackSlotsForDataType(parameter.dataType);
+      if (slots === 0) continue;
+      this.push(
+        NWScriptExpression.variable(parameter.name, parameter.dataType),
+        -1,
+        slots
+      );
+    }
+
+    return this.stackPointer;
   }
 
   /**
@@ -172,6 +242,10 @@ export class NWScriptStackSimulator {
 
       case OP_JSR:
         return this.handleJsr(instruction);
+
+      case OP_JZ:
+      case OP_JNZ:
+        return this.handleConditionalJump(instruction);
       
       case OP_CPTOPBP:
       case OP_CPTOPSP:
@@ -197,13 +271,11 @@ export class NWScriptStackSimulator {
       
       case OP_DECISP:
       case OP_INCISP:
-        this.handleLocalIncrement(instruction);
-        return null;
+        return this.handleLocalIncrement(instruction);
       
       case OP_DECIBP:
       case OP_INCIBP:
-        this.handleGlobalIncrement(instruction);
-        return null;
+        return this.handleGlobalIncrement(instruction);
       
       default:
         // Other instructions don't affect the stack
@@ -220,24 +292,35 @@ export class NWScriptStackSimulator {
 
     switch (instruction.type) {
       case 3: // INTEGER
+        if (typeof instruction.integer !== 'number' || !Number.isInteger(instruction.integer)) {
+          throw new NWScriptStackAnalysisError(instruction, 'CONSTI is missing a finite integer payload');
+        }
         value = instruction.integer;
         dataType = NWScriptDataType.INTEGER;
         break;
       case 4: // FLOAT
+        if (typeof instruction.float !== 'number' || !Number.isFinite(instruction.float)) {
+          throw new NWScriptStackAnalysisError(instruction, 'CONSTF is missing a finite float payload');
+        }
         value = instruction.float;
         dataType = NWScriptDataType.FLOAT;
         break;
       case 5: // STRING
+        if (typeof instruction.string !== 'string') {
+          throw new NWScriptStackAnalysisError(instruction, 'CONSTS is missing its string payload');
+        }
         value = instruction.string;
         dataType = NWScriptDataType.STRING;
         break;
       case 6: // OBJECT
+        if (typeof instruction.object !== 'number' || !Number.isFinite(instruction.object)) {
+          throw new NWScriptStackAnalysisError(instruction, 'CONSTO is missing a finite object payload');
+        }
         value = instruction.object;
         dataType = NWScriptDataType.OBJECT;
         break;
       default:
-        value = 0;
-        dataType = NWScriptDataType.INTEGER;
+        throw new NWScriptStackAnalysisError(instruction, `unsupported CONST type 0x${instruction.type.toString(16)}`);
     }
 
     const expr = NWScriptExpression.constant(value, dataType);
@@ -249,25 +332,18 @@ export class NWScriptStackSimulator {
    * Handle binary arithmetic operations
    */
   private handleBinaryOp(instruction: NWScriptInstruction): NWScriptExpression {
-    if (this.stack.length < 2) {
-      // Not enough operands - create placeholder
-      const right = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      const left = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      
-      const operator = this.getBinaryOperator(instruction.code);
-      const dataType = this.getResultType(instruction.type);
-      const expr = NWScriptExpression.binaryOp(operator, left, right, dataType);
-      this.push(expr, instruction.address);
-      return expr;
+    const signature = getArithmeticTypeSignature(instruction.code, instruction.type);
+    if (!signature) {
+      throw new NWScriptStackAnalysisError(instruction, `unsupported binary type 0x${instruction.type.toString(16)}`);
     }
 
-    const right = this.pop()!;
-    const left = this.pop()!;
+    const right = this.popTypedValue(signature.right, instruction, 'right operand');
+    const left = this.popTypedValue(signature.left, instruction, 'left operand');
     const operator = this.getBinaryOperator(instruction.code);
-    const dataType = this.getResultType(instruction.type);
+    const dataType = getBinaryResultDataType(instruction.type);
     
-    const expr = NWScriptExpression.binaryOp(operator, left.expression, right.expression, dataType);
-    this.push(expr, instruction.address);
+    const expr = NWScriptExpression.binaryOp(operator, left, right, dataType);
+    this.push(expr, instruction.address, stackSlotsForDataType(dataType));
     return expr;
   }
 
@@ -275,21 +351,23 @@ export class NWScriptStackSimulator {
    * Handle comparison operations
    */
   private handleComparison(instruction: NWScriptInstruction): NWScriptExpression {
-    if (this.stack.length < 2) {
-      const right = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      const left = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      
-      const operator = this.getComparisonOperator(instruction.code);
-      const expr = NWScriptExpression.comparison(operator, left, right);
-      this.push(expr, instruction.address);
-      return expr;
+    let left: NWScriptExpression;
+    let right: NWScriptExpression;
+    if (instruction.type === NWScriptDataType.STRUCTURE) {
+      const slots = stackSlotsForByteSize(instruction.sizeOfStructure, 'EQUAL/NEQUAL structure');
+      right = this.popSlotsAsValue(slots, NWScriptDataType.STRUCTURE, instruction, 'right structure');
+      left = this.popSlotsAsValue(slots, NWScriptDataType.STRUCTURE, instruction, 'left structure');
+    } else {
+      const signature = getComparisonTypeSignature(instruction.code, instruction.type);
+      if (!signature) {
+        throw new NWScriptStackAnalysisError(instruction, `unsupported comparison type 0x${instruction.type.toString(16)}`);
+      }
+      right = this.popTypedValue(signature.right, instruction, 'right operand');
+      left = this.popTypedValue(signature.left, instruction, 'left operand');
     }
-
-    const right = this.pop()!;
-    const left = this.pop()!;
     const operator = this.getComparisonOperator(instruction.code);
     
-    const expr = NWScriptExpression.comparison(operator, left.expression, right.expression);
+    const expr = NWScriptExpression.comparison(operator, left, right);
     this.push(expr, instruction.address);
     return expr;
   }
@@ -298,21 +376,11 @@ export class NWScriptStackSimulator {
    * Handle logical operations
    */
   private handleLogical(instruction: NWScriptInstruction): NWScriptExpression {
-    if (this.stack.length < 2) {
-      const right = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      const left = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      
-      const operator = this.getLogicalOperator(instruction.code);
-      const expr = NWScriptExpression.logical(operator, left, right);
-      this.push(expr, instruction.address);
-      return expr;
-    }
-
-    const right = this.pop()!;
-    const left = this.pop()!;
+    const right = this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'right logical operand');
+    const left = this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'left logical operand');
     const operator = this.getLogicalOperator(instruction.code);
     
-    const expr = NWScriptExpression.logical(operator, left.expression, right.expression);
+    const expr = NWScriptExpression.logical(operator, left, right);
     this.push(expr, instruction.address);
     return expr;
   }
@@ -321,21 +389,11 @@ export class NWScriptStackSimulator {
    * Handle bitwise operations
    */
   private handleBitwise(instruction: NWScriptInstruction): NWScriptExpression {
-    if (this.stack.length < 2) {
-      const right = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      const left = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      
-      const operator = instruction.code === OP_INCORII ? '|' : '^';
-      const expr = NWScriptExpression.binaryOp(operator, left, right, NWScriptDataType.INTEGER);
-      this.push(expr, instruction.address);
-      return expr;
-    }
-
-    const right = this.pop()!;
-    const left = this.pop()!;
+    const right = this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'right bitwise operand');
+    const left = this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'left bitwise operand');
     const operator = instruction.code === OP_INCORII ? '|' : '^';
     
-    const expr = NWScriptExpression.binaryOp(operator, left.expression, right.expression, NWScriptDataType.INTEGER);
+    const expr = NWScriptExpression.binaryOp(operator, left, right, NWScriptDataType.INTEGER);
     this.push(expr, instruction.address);
     return expr;
   }
@@ -344,25 +402,8 @@ export class NWScriptStackSimulator {
    * Handle shift operations
    */
   private handleShiftOp(instruction: NWScriptInstruction): NWScriptExpression {
-    if (this.stack.length < 2) {
-      const right = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      const left = this.pop()?.expression || NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      
-      let operator: string;
-      switch (instruction.code) {
-        case OP_SHLEFTII: operator = '<<'; break;
-        case OP_SHRIGHTII: operator = '>>'; break;
-        case OP_USHRIGHTII: operator = '>>>'; break;
-        default: operator = '?';
-      }
-      
-      const expr = NWScriptExpression.binaryOp(operator, left, right, NWScriptDataType.INTEGER);
-      this.push(expr, instruction.address);
-      return expr;
-    }
-
-    const right = this.pop()!;
-    const left = this.pop()!;
+    const right = this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'shift count');
+    const left = this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'shift value');
     
     let operator: string;
     switch (instruction.code) {
@@ -372,7 +413,7 @@ export class NWScriptStackSimulator {
       default: operator = '?';
     }
     
-    const expr = NWScriptExpression.binaryOp(operator, left.expression, right.expression, NWScriptDataType.INTEGER);
+    const expr = NWScriptExpression.binaryOp(operator, left, right, NWScriptDataType.INTEGER);
     this.push(expr, instruction.address);
     return expr;
   }
@@ -381,20 +422,21 @@ export class NWScriptStackSimulator {
    * Handle unary operations
    */
   private handleUnaryOp(instruction: NWScriptInstruction): NWScriptExpression {
-    if (this.stack.length < 1) {
-      const operand = NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
-      const operator = this.getUnaryOperator(instruction.code);
-      const dataType = instruction.type === 0x03 ? NWScriptDataType.INTEGER : NWScriptDataType.FLOAT;
-      const expr = NWScriptExpression.unaryOp(operator, operand, dataType);
-      this.push(expr, instruction.address);
-      return expr;
-    }
-
-    const item = this.pop()!;
     const operator = this.getUnaryOperator(instruction.code);
-    const dataType = instruction.type === 0x03 ? NWScriptDataType.INTEGER : NWScriptDataType.FLOAT;
+    const dataType = getUnaryDataType(instruction.type);
+    if (
+      dataType === null ||
+      (instruction.code !== OP_NEG && dataType !== NWScriptDataType.INTEGER) ||
+      (instruction.code === OP_NEG && dataType !== NWScriptDataType.INTEGER && dataType !== NWScriptDataType.FLOAT)
+    ) {
+      throw new NWScriptStackAnalysisError(
+        instruction,
+        `unsupported unary type 0x${instruction.type.toString(16)}`
+      );
+    }
+    const operand = this.popTypedValue(dataType, instruction, 'unary operand');
     
-    const expr = NWScriptExpression.unaryOp(operator, item.expression, dataType);
+    const expr = NWScriptExpression.unaryOp(operator, operand, dataType);
     this.push(expr, instruction.address);
     return expr;
   }
@@ -413,26 +455,26 @@ export class NWScriptStackSimulator {
 
     if (meta) {
       const args: NWScriptExpression[] = [];
-      let n = Math.min(slots, this.stack.length);
-      while (n > 0) {
-        const item = this.pop();
-        if (item) {
-          args.unshift(item.expression);
+      if (meta.parameters.length > 0) {
+        for (const parameter of meta.parameters) {
+          args.push(this.popTypedValue(parameter.dataType, instruction, `argument ${parameter.name}`));
         }
-        n--;
+      } else if (slots > 0) {
+        args.push(...this.popScalarArgumentsBySlotCount(slots, instruction, 'JSR arguments'));
       }
-      args.reverse();
+
       const expr = NWScriptExpression.functionCall(meta.name, args, meta.returnType);
       if (meta.returnType !== NWScriptDataType.VOID) {
-        this.push(expr, instruction.address);
+        // The caller reserves the result before pushing arguments. Replace those reserved
+        // slots with the call expression instead of appending a second result value.
+        this.discardSlots(stackSlotsForDataType(meta.returnType), instruction, 'JSR return reservation');
+        this.push(expr, instruction.address, stackSlotsForDataType(meta.returnType));
       }
       return expr;
     }
 
-    let n = Math.min(slots, this.stack.length);
-    while (n > 0) {
-      this.pop();
-      n--;
+    if (slots > 0) {
+      this.discardSlots(slots, instruction, 'JSR arguments');
     }
     return null;
   }
@@ -443,30 +485,44 @@ export class NWScriptStackSimulator {
   private handleAction(instruction: NWScriptInstruction): NWScriptExpression | null {
     const actionDef = instruction.actionDefinition;
     const rawArgCount = instruction.argCount ?? 0;
-    const argCount = Math.min(Math.max(rawArgCount, 0), 48);
+    if (!Number.isInteger(rawArgCount) || rawArgCount < 0) {
+      throw new NWScriptStackAnalysisError(instruction, `invalid ACTION argument count ${rawArgCount}`);
+    }
+    const argCount = rawArgCount;
 
     if (!actionDef) {
-      for (let i = 0; i < argCount && this.stack.length > 0; i++) {
-        this.pop();
-      }
-      return null;
+      this.diagnostics.push(
+        `0x${instruction.address.toString(16)}: ACTION ${instruction.action} has no signature; assuming ${argCount} scalar arguments and void return`
+      );
+      const args = argCount > 0
+        ? this.popScalarArgumentsBySlotCount(argCount, instruction, 'unknown ACTION arguments')
+        : [];
+      return NWScriptExpression.functionCall(
+        `__NCS_ACTION_${instruction.action}__`,
+        args,
+        NWScriptDataType.VOID
+      );
     }
 
     const args: NWScriptExpression[] = [];
 
-    // Pop arguments from stack
-    // In NWScript, arguments appear to be pushed in forward order (first arg first)
-    // So when we pop them, we get them in reverse order (last arg first)
-    // We use push to collect them, then reverse to get correct order
-    for (let i = 0; i < argCount && this.stack.length > 0; i++) {
-      const item = this.pop();
-      if (item) {
-        args.unshift(item.expression); // unshift to maintain correct order
+    if (argCount > actionDef.args.length) {
+      throw new NWScriptStackAnalysisError(
+        instruction,
+        `ACTION declares ${argCount} arguments but ${actionDef.name} has only ${actionDef.args.length}`
+      );
+    }
+
+    // The compiler pushes formal arguments in reverse order, so the first formal argument is
+    // at TOS. Pop in signature order; VECTOR consumes three physical float slots.
+    for (let i = 0; i < argCount; i++) {
+      const dataType = actionDef.args[i];
+      if (dataType === NWScriptDataType.ACTION) {
+        args.push(NWScriptExpression.unknown(`ACTION thunk argument ${i + 1}`, NWScriptDataType.ACTION));
+      } else {
+        args.push(this.popTypedValue(dataType, instruction, `argument ${i + 1} of ${actionDef.name}`));
       }
     }
-    
-    // Reverse to get correct argument order (first arg first)
-    args.reverse();
 
     const functionName = actionDef.name || `Action_${instruction.action}`;
     const returnType = actionDef.type || NWScriptDataType.VOID;
@@ -493,10 +549,14 @@ export class NWScriptStackSimulator {
     
     // Push return value if not void
     if (returnType !== NWScriptDataType.VOID) {
-      this.push(expr, instruction.address);
+      this.push(expr, instruction.address, stackSlotsForDataType(returnType));
     }
     
     return expr;
+  }
+
+  private handleConditionalJump(instruction: NWScriptInstruction): NWScriptExpression {
+    return this.popTypedValue(NWScriptDataType.INTEGER, instruction, 'branch condition');
   }
 
   /**
@@ -504,6 +564,10 @@ export class NWScriptStackSimulator {
    */
   private handleVariableRead(instruction: NWScriptInstruction): NWScriptExpression {
     const isGlobal = instruction.code === OP_CPTOPBP;
+    const width = instruction.size === undefined
+      ? 1
+      : stackSlotsForByteSize(instruction.size, instruction.codeName || 'CPTOP');
+    let expressionIsGlobal = isGlobal;
     let varName: string;
     let dataType: NWScriptDataType;
     
@@ -517,9 +581,8 @@ export class NWScriptStackSimulator {
         const param = this.functionParameters.get(offsetSigned)!;
         varName = param.name;
         dataType = param.dataType;
-      } else if (offsetSigned < 0 && this.globalVariables.has(offsetSigned)) {
-        // This is a global variable (negative offset relative to BP)
-        // ALL stack offsets are negative - we're always looking down from the top
+        expressionIsGlobal = false;
+      } else if (this.globalVariables.has(offsetSigned)) {
         const globalVar = this.globalVariables.get(offsetSigned)!;
         varName = globalVar.name;
         dataType = globalVar.dataType;
@@ -529,11 +592,8 @@ export class NWScriptStackSimulator {
         dataType = NWScriptDataType.INTEGER; // Default, could be improved
       }
     } else {
-      // Local variable (CPTOPSP)
-      // CRITICAL: CPTOPSP reads from stack[SP + offset] where SP is the CURRENT stack pointer
-      // We should resolve this dynamically using the actual stack state, not static offsets
-      const offset = instruction.offset || 0;
-      const offsetSigned = offset > 0x7FFFFFFF ? offset - 0x100000000 : offset;
+      const offset = instruction.offset ?? 0;
+      const offsetSigned = toSignedInt32(offset);
       
       // Calculate the actual stack position this instruction reads from
       const sourceStackPos = this.stackPointer + offsetSigned;
@@ -544,141 +604,140 @@ export class NWScriptStackSimulator {
         // RSADD-registered slot: analyzer may have no NWScriptLocalInit row (non −8 CPDOWNSP patterns).
         const init = this.localVariableInits[varIndex];
         varName = `localVar_${varIndex}`;
-        dataType = init?.dataType ?? NWScriptDataType.INTEGER;
+        dataType = width === 3
+          ? NWScriptDataType.VECTOR
+          : init?.dataType ?? NWScriptDataType.INTEGER;
       } else {
-        // Stack-aware fallback: Check all variable positions with tolerance
-        // The stack may have grown between RSADD and CPTOPSP, so check all recorded positions
-        let foundVar = false;
-        let tolBestIdx: number | undefined;
-        let tolBestDist = Number.POSITIVE_INFINITY;
-        for (const [varPos, idx] of this.variableStackPositions.entries()) {
-          const distance = Math.abs(sourceStackPos - varPos);
-          if (distance > 28) {
-            continue;
+        const spParam = this.cptopspParameterOperands.get(offsetSigned);
+        const staticLocal = this.localVariables.get(offsetSigned) ?? this.localVariables.get(offset >>> 0);
+        if (staticLocal) {
+          varName = staticLocal.name;
+          dataType = staticLocal.dataType;
+        } else {
+          const copiedValue = this.readRepresentedStackValue(
+            sourceStackPos,
+            width,
+            this.dataTypeForCopyWidth(instruction.size),
+            instruction
+          );
+          if (copiedValue) {
+            this.push(copiedValue, instruction.address, width);
+            return copiedValue;
           }
-          if (
-            tolBestIdx === undefined ||
-            distance < tolBestDist ||
-            (distance === tolBestDist && idx < tolBestIdx)
-          ) {
-            tolBestDist = distance;
-            tolBestIdx = idx;
-          }
-        }
-        if (tolBestIdx !== undefined) {
-          const init = this.localVariableInits[tolBestIdx];
-          varName = `localVar_${tolBestIdx}`;
-          dataType = init?.dataType ?? NWScriptDataType.INTEGER;
-          foundVar = true;
-        }
-        
-        if (!foundVar) {
-          // Last resort: pick closest mapped local by stack position (frame phases can drift > 28 bytes
-          // when MOVSP reserves without mirroring array length).
-          let bestIdx: number | undefined;
-          let bestDist = Number.POSITIVE_INFINITY;
-          for (const [varPos, idx] of this.variableStackPositions.entries()) {
-            const d = Math.abs(sourceStackPos - varPos);
-            if (bestIdx === undefined || d < bestDist || (d === bestDist && idx < bestIdx)) {
-              bestDist = d;
-              bestIdx = idx;
-            }
-          }
-          if (bestIdx !== undefined && bestDist <= 512) {
-            const init = this.localVariableInits[bestIdx];
-            varName = `localVar_${bestIdx}`;
-            dataType = init?.dataType ?? NWScriptDataType.INTEGER;
-            foundVar = true;
-          }
-        }
-
-        if (!foundVar) {
-          const spParam = this.cptopspParameterOperands.get(offsetSigned);
           if (spParam) {
+            // Compatibility fallback for expression probes that do not have a seeded frame.
             varName = spParam.name;
             dataType = spParam.dataType;
-            foundVar = true;
           } else {
-            // Last resort: Fallback to static offset-based mapping (for backward compatibility)
-            const offsetUnsigned = offset < 0 ? offset + 0x100000000 : offset;
-            if (this.localVariables.has(offsetUnsigned)) {
-              const localVar = this.localVariables.get(offsetUnsigned)!;
-              varName = localVar.name;
-              dataType = localVar.dataType;
-            } else {
-              varName = this.generateVariableName(false, offsetSigned);
-              dataType = NWScriptDataType.INTEGER;
-            }
+            varName = this.generateVariableName(false, offsetSigned);
+            dataType = this.dataTypeForCopyWidth(instruction.size);
+            this.diagnostics.push(
+              `0x${instruction.address.toString(16)}: no exact local mapping for SP ${sourceStackPos} (${offsetSigned >= 0 ? '+' : ''}${offsetSigned})`
+            );
           }
         }
       }
     }
     
-    const expr = NWScriptExpression.variable(varName, dataType, isGlobal);
-    this.push(expr, instruction.address);
+    const expr = NWScriptExpression.variable(varName, dataType, expressionIsGlobal);
+    this.push(expr, instruction.address, width);
     return expr;
+  }
+
+  /** Recover CPTOPSP copies of represented temporaries before inventing an `sp_*` variable. */
+  private readRepresentedStackValue(
+    sourceStackPosition: number,
+    slots: number,
+    dataType: NWScriptDataType,
+    instruction: NWScriptInstruction
+  ): NWScriptExpression | null {
+    const representedSlots = this.getStackSlotCount();
+    const representedBasePosition = this.stackPointer - representedSlots * 4;
+    const relativeBytes = sourceStackPosition - representedBasePosition;
+    if (
+      relativeBytes < 0 ||
+      relativeBytes % 4 !== 0 ||
+      relativeBytes / 4 + slots > representedSlots
+    ) {
+      return null;
+    }
+
+    const items = this.sliceLogicalItemsBySlots(
+      this.stack,
+      relativeBytes / 4,
+      slots,
+      instruction
+    );
+    if (items.length === 1 && items[0].slotWidth === slots) {
+      return items[0].expression;
+    }
+    if (
+      dataType === NWScriptDataType.VECTOR &&
+      items.length === 3 &&
+      items.every(item => item.slotWidth === 1)
+    ) {
+      return NWScriptExpression.vector(items.map(item => item.expression));
+    }
+    if (slots === 1 && items.length === 1) {
+      return items[0].expression;
+    }
+    return NWScriptExpression.unknown(
+      `CPTOPSP copied an unrecoverable ${slots}-slot aggregate`,
+      dataType
+    );
   }
 
   /**
    * Handle local variable write (CPDOWNSP)
    */
   private handleLocalWrite(instruction: NWScriptInstruction): NWScriptExpression | null {
-    if (this.stack.length === 0) {
-      return null;
-    }
-
-    // CPDOWNSP copies from top of stack to a location down the stack
-    // The value remains on the stack
-    const topItem = this.peek();
-    if (topItem) {
-      // The value is written to stack[SP + offset]
-      // For now, we just keep the value on the stack
-      // The actual write is tracked by NWScriptVariableTracker
-      return topItem.expression;
-    }
-    return null;
+    const slots = stackSlotsForByteSize(instruction.size ?? 4, 'CPDOWNSP');
+    return this.peekSlotsAsValue(slots, this.dataTypeForCopyWidth(instruction.size), instruction, 'CPDOWNSP value');
   }
 
   /**
    * Handle global variable write (CPDOWNBP)
    */
   private handleGlobalWrite(instruction: NWScriptInstruction): NWScriptExpression | null {
-    if (this.stack.length === 0) {
-      return null;
+    const offsetSigned = toSignedInt32(instruction.offset);
+    const global = this.globalVariables.get(offsetSigned);
+    const slots = stackSlotsForByteSize(instruction.size ?? 4, 'CPDOWNBP');
+    const value = this.peekSlotsAsValue(
+      slots,
+      global?.dataType ?? this.dataTypeForCopyWidth(instruction.size),
+      instruction,
+      'CPDOWNBP value'
+    );
+    const target = NWScriptExpression.variable(
+      global?.name ?? this.generateVariableName(true, offsetSigned),
+      global?.dataType ?? value.dataType,
+      true
+    );
+    if (!global) {
+      this.diagnostics.push(`0x${instruction.address.toString(16)}: unresolved BP write at offset ${offsetSigned}`);
     }
-
-    // CPDOWNBP copies from top of stack to a global variable
-    // The value remains on the stack
-    const topItem = this.peek();
-    if (topItem) {
-      // The actual write is tracked by NWScriptVariableTracker
-      return topItem.expression;
-    }
-    return null;
+    return NWScriptExpression.assignment(target, value);
   }
 
   /**
    * Handle MOVSP (move stack pointer)
    */
   private handleMovsp(instruction: NWScriptInstruction): void {
-    const offset = instruction.offset || 0;
-    
-    if (offset > 0) {
-      // Positive offset: remove items from stack (cleanup)
-      const count = Math.floor(offset / 4); // Each item is 4 bytes
-      for (let i = 0; i < count && this.stack.length > 0; i++) {
-        this.pop();
-      }
-    } else if (offset < 0) {
-      // Negative offset: reserve space (add empty slots)
-      // This is typically for variable declarations
-      const count = Math.floor(-offset / 4);
-      // We don't add actual items, just track the space
-      // The stack pointer effectively moves, but we track it via stackPointer
+    const offset = toSignedInt32(instruction.offset);
+    const slots = stackSlotsForByteSize(Math.abs(offset), 'MOVSP');
+
+    if (offset < 0) {
+      this.discardSlots(slots, instruction, 'MOVSP cleanup');
+      return;
     }
-    
-    // Update stack pointer
-    this.stackPointer += offset;
+
+    for (let i = 0; i < slots; i++) {
+      this.push(
+        NWScriptExpression.unknown(`MOVSP reserved slot ${i + 1}/${slots}`),
+        instruction.address,
+        1
+      );
+    }
   }
 
   /**
@@ -691,48 +750,33 @@ export class NWScriptStackSimulator {
    * SP is decremented by sizeToDestroy
    */
   private handleDestruct(instruction: NWScriptInstruction): void {
-    const sizeToDestroy = instruction.sizeToDestroy || 0;
-    const offsetToSaveElement = instruction.offsetToSaveElement || 0;
-    const sizeOfElementToSave = instruction.sizeOfElementToSave || 0;
-    
-    // Convert bytes to number of items (each item is 4 bytes)
-    const totalItemsToRemove = Math.floor(sizeToDestroy / 4);
-    const offsetItems = Math.floor(offsetToSaveElement / 4);
-    const itemsToSave = Math.floor(sizeOfElementToSave / 4);
-    
-    if (totalItemsToRemove === 0 || this.stack.length === 0) {
-      console.warn('DESTRUCT', sizeToDestroy, offsetToSaveElement, sizeOfElementToSave, this.stack.length);
-      // Nothing to remove, but still update stack pointer
-      return;
-    }
-    
-    const saveStartFromTop = offsetItems;
-    const saveEndFromTop = saveStartFromTop + itemsToSave;
-    
-    const savedItems: StackItem[] = [];
-    if (itemsToSave > 0 && this.stack.length >= saveEndFromTop) {
-      const saveStartIndex = this.stack.length - saveEndFromTop;
-      const saveEndIndex = this.stack.length - saveStartFromTop;
-      
-      // This preserves the relative order when pushed back
-      for (let i = saveStartIndex; i < saveEndIndex; i++) {
-        savedItems.push(this.stack[i]);
-      }
-    }
-    
-    // Remove the entire region from the top (pop totalItemsToRemove items)
-    // This decreases stackPointer by sizeToDestroy
-    for (let i = 0; i < totalItemsToRemove && this.stack.length > 0; i++) {
-      this.pop();
-    }
-    
-    // Push the saved items back onto the stack
-    // This increases stackPointer by sizeOfElementToSave
-    for (const item of savedItems) {
-      this.push(item.expression, item.address);
+    const destroySlots = stackSlotsForByteSize(instruction.sizeToDestroy, 'DESTRUCT destroy');
+    const saveOffsetSlots = stackSlotsForByteSize(instruction.offsetToSaveElement, 'DESTRUCT save offset');
+    const saveSlots = stackSlotsForByteSize(instruction.sizeOfElementToSave, 'DESTRUCT save size');
+    if (saveOffsetSlots + saveSlots > destroySlots) {
+      throw new NWScriptStackAnalysisError(instruction, 'saved range lies outside the destroyed region');
     }
 
-    this.stackPointer -= sizeToDestroy;
+    const representedSlots = this.getStackSlotCount();
+    if (destroySlots > representedSlots) {
+      throw new NWScriptStackAnalysisError(
+        instruction,
+        `needs ${destroySlots} represented slots but only ${representedSlots} are available`
+      );
+    }
+
+    const regionStartSlot = representedSlots - destroySlots;
+    const regionStartIndex = this.findItemBoundaryAtSlot(regionStartSlot, instruction);
+    const regionItems = this.stack.slice(regionStartIndex);
+    const savedItems = this.sliceLogicalItemsBySlots(
+      regionItems,
+      saveOffsetSlots,
+      saveSlots,
+      instruction
+    );
+
+    this.stack = this.stack.slice(0, regionStartIndex).concat(savedItems);
+    this.stackPointer -= (destroySlots - saveSlots) * 4;
   }
 
   /**
@@ -743,78 +787,272 @@ export class NWScriptStackSimulator {
     // This matches the runtime behavior where RSADD pushes a value
     // The variable will live at this stack position
     
-    // Determine the default value based on instruction type
-    let defaultValue: any;
-    let dataType: NWScriptDataType;
-    
-    switch (instruction.type) {
-      case 3: // INTEGER
-        defaultValue = 0;
-        dataType = NWScriptDataType.INTEGER;
-        break;
-      case 4: // FLOAT
-        defaultValue = 0.0;
-        dataType = NWScriptDataType.FLOAT;
-        break;
-      case 5: // STRING
-        defaultValue = '';
-        dataType = NWScriptDataType.STRING;
-        break;
-      case 6: // OBJECT
-        defaultValue = undefined;
-        dataType = NWScriptDataType.OBJECT;
-        break;
-      case 16: // EFFECT
-        defaultValue = undefined;
-        dataType = NWScriptDataType.EFFECT;
-        break;
-      case 17: // EVENT
-        defaultValue = undefined;
-        dataType = NWScriptDataType.EVENT;
-        break;
-      case 18: // LOCATION
-        defaultValue = undefined;
-        dataType = NWScriptDataType.LOCATION;
-        break;
-      case 19: // TALENT
-        defaultValue = undefined;
-        dataType = NWScriptDataType.TALENT;
-        break;
-      default:
-        // Default to integer
-        defaultValue = 0;
-        dataType = NWScriptDataType.INTEGER;
-        break;
+    const dataType = getUnaryDataType(instruction.type);
+    if (
+      dataType === null ||
+      dataType === NWScriptDataType.VECTOR ||
+      dataType === NWScriptDataType.STRUCTURE
+    ) {
+      throw new NWScriptStackAnalysisError(instruction, `unsupported RSADD type 0x${instruction.type.toString(16)}`);
     }
-    
-    // Push the default value onto the stack
-    // This creates a stack item that represents the variable's initial value
-    const expr = NWScriptExpression.constant(defaultValue, dataType);
+    const expr = dataType === NWScriptDataType.INTEGER || dataType === NWScriptDataType.FLOAT
+      ? NWScriptExpression.constant(0, dataType)
+      : dataType === NWScriptDataType.STRING
+        ? NWScriptExpression.constant('', dataType)
+        : dataType === NWScriptDataType.OBJECT
+          ? NWScriptExpression.constant(1, dataType)
+          : NWScriptExpression.unknown(
+              `uninitialized ${NWScriptDataType[dataType]} RSADD value`,
+              dataType
+            );
+
+    // Push the VM default. Opaque engine values remain explicit unknowns rather than the
+    // invalid NSS token `undefined`; an object reservation is the VM's OBJECT_INVALID value.
     this.push(expr, instruction.address);
   }
 
   /**
    * Handle local variable increment/decrement
    */
-  private handleLocalIncrement(instruction: NWScriptInstruction): void {
-    // DECISP/INCISP modify a local variable
-    // They don't directly affect the stack, but the variable tracker handles this
+  private handleLocalIncrement(instruction: NWScriptInstruction): NWScriptExpression {
+    const offsetSigned = toSignedInt32(instruction.offset);
+    const targetPosition = this.stackPointer + offsetSigned;
+    const variableIndex = this.variableStackPositions.get(targetPosition);
+    const init = variableIndex === undefined ? undefined : this.localVariableInits[variableIndex];
+    const target = NWScriptExpression.variable(
+      variableIndex === undefined ? this.generateVariableName(false, offsetSigned) : `localVar_${variableIndex}`,
+      init?.dataType ?? NWScriptDataType.INTEGER,
+      false
+    );
+    return this.buildIncrementAssignment(instruction, target);
   }
 
   /**
    * Handle global variable increment/decrement
    */
-  private handleGlobalIncrement(instruction: NWScriptInstruction): void {
-    // DECIBP/INCIBP modify a global variable
-    // They don't directly affect the stack, but the variable tracker handles this
+  private handleGlobalIncrement(instruction: NWScriptInstruction): NWScriptExpression {
+    const offsetSigned = toSignedInt32(instruction.offset);
+    const global = this.globalVariables.get(offsetSigned);
+    const target = NWScriptExpression.variable(
+      global?.name ?? this.generateVariableName(true, offsetSigned),
+      global?.dataType ?? NWScriptDataType.INTEGER,
+      true
+    );
+    return this.buildIncrementAssignment(instruction, target);
+  }
+
+  private buildIncrementAssignment(
+    instruction: NWScriptInstruction,
+    target: NWScriptExpression
+  ): NWScriptExpression {
+    if (target.dataType !== NWScriptDataType.INTEGER) {
+      throw new NWScriptStackAnalysisError(instruction, 'INC/DEC target is not an integer');
+    }
+    const isIncrement = instruction.code === OP_INCISP || instruction.code === OP_INCIBP;
+    const value = NWScriptExpression.binaryOp(
+      isIncrement ? '+' : '-',
+      target,
+      NWScriptExpression.constant(1, NWScriptDataType.INTEGER),
+      NWScriptDataType.INTEGER
+    );
+    return NWScriptExpression.assignment(target, value);
+  }
+
+  private popRequired(instruction: NWScriptInstruction, context: string): StackItem {
+    const item = this.pop();
+    if (!item) {
+      throw new NWScriptStackAnalysisError(instruction, `stack underflow while reading ${context}`);
+    }
+    return item;
+  }
+
+  private popTypedValue(
+    dataType: NWScriptDataType,
+    instruction: NWScriptInstruction,
+    context: string
+  ): NWScriptExpression {
+    return this.popSlotsAsValue(
+      Math.max(1, stackSlotsForDataType(dataType)),
+      dataType,
+      instruction,
+      context
+    );
+  }
+
+  private popSlotsAsValue(
+    slots: number,
+    dataType: NWScriptDataType,
+    instruction: NWScriptInstruction,
+    context: string
+  ): NWScriptExpression {
+    if (slots <= 0) {
+      return NWScriptExpression.unknown(`${context} does not live on the value stack`, dataType);
+    }
+
+    const top = this.peek();
+    if (top && top.slotWidth === slots) {
+      const item = this.popRequired(instruction, context);
+      if (
+        item.expression.dataType !== dataType &&
+        item.expression.dataType !== NWScriptDataType.STRUCTURE &&
+        dataType !== NWScriptDataType.STRUCTURE
+      ) {
+        this.diagnostics.push(
+          `0x${instruction.address.toString(16)}: ${context} expected ${NWScriptDataType[dataType]}, found ${NWScriptDataType[item.expression.dataType]}`
+        );
+      }
+      return item.expression;
+    }
+
+    const popped: StackItem[] = [];
+    let consumed = 0;
+    while (consumed < slots) {
+      const item = this.popRequired(instruction, context);
+      consumed += item.slotWidth;
+      if (consumed > slots) {
+        throw new NWScriptStackAnalysisError(
+          instruction,
+          `${context} cuts through a ${item.slotWidth}-slot logical value`
+        );
+      }
+      popped.push(item);
+    }
+
+    if (dataType === NWScriptDataType.VECTOR && popped.length === 3 && popped.every(item => item.slotWidth === 1)) {
+      return NWScriptExpression.vector(popped.reverse().map(item => item.expression));
+    }
+
+    if (slots === 1 && popped.length === 1) {
+      return popped[0].expression;
+    }
+
+    const diagnostic = `${context} is a ${slots}-slot aggregate whose source fields are unavailable`;
+    this.diagnostics.push(`0x${instruction.address.toString(16)}: ${diagnostic}`);
+    return NWScriptExpression.unknown(diagnostic, dataType);
+  }
+
+  private popScalarArgumentsBySlotCount(
+    slots: number,
+    instruction: NWScriptInstruction,
+    context: string
+  ): NWScriptExpression[] {
+    const args: NWScriptExpression[] = [];
+    let consumed = 0;
+    while (consumed < slots) {
+      const item = this.popRequired(instruction, context);
+      consumed += item.slotWidth;
+      if (consumed > slots) {
+        throw new NWScriptStackAnalysisError(instruction, `${context} ends inside a logical value`);
+      }
+      args.push(item.expression);
+    }
+    return args;
+  }
+
+  private discardSlots(slots: number, instruction: NWScriptInstruction, context: string): void {
+    let discarded = 0;
+    while (discarded < slots) {
+      const item = this.popRequired(instruction, context);
+      discarded += item.slotWidth;
+      if (discarded > slots) {
+        throw new NWScriptStackAnalysisError(
+          instruction,
+          `${context} removes ${slots} slots through a ${item.slotWidth}-slot logical value`
+        );
+      }
+    }
+  }
+
+  private peekSlotsAsValue(
+    slots: number,
+    dataType: NWScriptDataType,
+    instruction: NWScriptInstruction,
+    context: string
+  ): NWScriptExpression {
+    const snapshot = this.takeStackSnapshot();
+    try {
+      return this.popSlotsAsValue(slots, dataType, instruction, context);
+    } finally {
+      this.restoreStackSnapshot(snapshot);
+    }
+  }
+
+  private findItemBoundaryAtSlot(slot: number, instruction: NWScriptInstruction): number {
+    let cursor = 0;
+    for (let i = 0; i < this.stack.length; i++) {
+      if (cursor === slot) {
+        return i;
+      }
+      cursor += this.stack[i].slotWidth;
+      if (cursor > slot) {
+        throw new NWScriptStackAnalysisError(instruction, 'DESTRUCT starts inside a logical aggregate');
+      }
+    }
+    if (cursor === slot) {
+      return this.stack.length;
+    }
+    throw new NWScriptStackAnalysisError(instruction, `DESTRUCT slot ${slot} lies outside represented stack`);
+  }
+
+  private sliceLogicalItemsBySlots(
+    items: StackItem[],
+    offsetSlots: number,
+    sizeSlots: number,
+    instruction: NWScriptInstruction
+  ): StackItem[] {
+    if (sizeSlots === 0) {
+      return [];
+    }
+
+    let cursor = 0;
+    let startIndex = -1;
+    let endIndex = -1;
+    for (let i = 0; i <= items.length; i++) {
+      if (cursor === offsetSlots && startIndex < 0) {
+        startIndex = i;
+      }
+      if (cursor === offsetSlots + sizeSlots) {
+        endIndex = i;
+        break;
+      }
+      if (i < items.length) {
+        cursor += items[i].slotWidth;
+      }
+    }
+
+    if (startIndex >= 0 && endIndex >= startIndex) {
+      return items.slice(startIndex, endIndex).map(item => ({ ...item }));
+    }
+
+    const dataType = sizeSlots === 3 ? NWScriptDataType.VECTOR : NWScriptDataType.STRUCTURE;
+    const diagnostic = `DESTRUCT preserves ${sizeSlots} slots from inside an aggregate`;
+    this.diagnostics.push(`0x${instruction.address.toString(16)}: ${diagnostic}`);
+    return [{
+      expression: NWScriptExpression.unknown(diagnostic, dataType),
+      address: instruction.address,
+      slotWidth: sizeSlots,
+    }];
+  }
+
+  private dataTypeForCopyWidth(size: number | undefined): NWScriptDataType {
+    if (size === 12) {
+      return NWScriptDataType.VECTOR;
+    }
+    if (size !== undefined && size > 4) {
+      return NWScriptDataType.STRUCTURE;
+    }
+    return NWScriptDataType.INTEGER;
   }
 
   /**
    * Push an expression onto the stack
    */
-  push(expression: NWScriptExpression, address: number): void {
-    this.stack.push({ expression, address });
-    this.stackPointer += 4; // Each item is 4 bytes
+  push(expression: NWScriptExpression, address: number, slotWidth: number = Math.max(1, stackSlotsForDataType(expression.dataType))): void {
+    if (!Number.isInteger(slotWidth) || slotWidth <= 0) {
+      throw new Error(`Invalid stack slot width ${slotWidth}`);
+    }
+    this.stack.push({ expression, address, slotWidth });
+    this.stackPointer += slotWidth * 4;
   }
 
   /**
@@ -825,7 +1063,7 @@ export class NWScriptStackSimulator {
       return null;
     }
     const item = this.stack.pop()!;
-    this.stackPointer -= 4;
+    this.stackPointer -= item.slotWidth * 4;
     return item;
   }
 
@@ -844,6 +1082,15 @@ export class NWScriptStackSimulator {
    */
   getStackSize(): number {
     return this.stack.length;
+  }
+
+  /** Number of physical four-byte slots represented by the logical stack. */
+  getStackSlotCount(): number {
+    return this.stack.reduce((sum, item) => sum + item.slotWidth, 0);
+  }
+
+  getDiagnostics(): readonly string[] {
+    return this.diagnostics;
   }
 
   /**
@@ -897,27 +1144,87 @@ export class NWScriptStackSimulator {
     this.stackPointer = 0;
     this.basePointer = 0;
     this.stackSnapshots.clear();
+    this.diagnostics = [];
     this.functionParameters.clear();
     this.cptopspParameterOperands.clear();
   }
 
   /** Save stack depth/SP/BP for re-entrant probing (e.g. switch discriminant extraction). */
-  takeStackSnapshot(): { stack: StackItem[]; stackPointer: number; basePointer: number } {
+  takeStackSnapshot(): NWScriptStackSnapshot {
     return {
-      stack: this.stack.map((i) => ({ expression: i.expression, address: i.address })),
+      stack: this.stack.map((i) => ({ ...i })),
       stackPointer: this.stackPointer,
       basePointer: this.basePointer,
     };
   }
 
-  restoreStackSnapshot(snapshot: {
-    stack: StackItem[];
-    stackPointer: number;
-    basePointer: number;
-  }): void {
-    this.stack = snapshot.stack.map((i) => ({ expression: i.expression, address: i.address }));
+  restoreStackSnapshot(snapshot: NWScriptStackSnapshot): void {
+    this.stack = snapshot.stack.map((i) => ({ ...i }));
     this.stackPointer = snapshot.stackPointer;
     this.basePointer = snapshot.basePointer;
+  }
+
+  /**
+   * Merge mutually-exclusive control-flow exits without leaking the state of whichever branch
+   * happened to be converted last. Valid NCS joins have the same physical stack shape on every
+   * incoming edge. Values that differ at an otherwise-compatible join become explicit unknowns;
+   * a malformed shape falls back to the supplied entry state and records a diagnostic.
+   */
+  mergeStackSnapshots(
+    snapshots: NWScriptStackSnapshot[],
+    context: string,
+    fallback: NWScriptStackSnapshot = this.takeStackSnapshot()
+  ): NWScriptStackSnapshot {
+    if (snapshots.length === 0) {
+      return this.cloneStackSnapshot(fallback);
+    }
+
+    const reference = snapshots[0];
+    const compatible = snapshots.every(snapshot =>
+      snapshot.stackPointer === reference.stackPointer &&
+      snapshot.basePointer === reference.basePointer &&
+      snapshot.stack.length === reference.stack.length &&
+      snapshot.stack.every((item, index) => item.slotWidth === reference.stack[index].slotWidth)
+    );
+
+    if (!compatible) {
+      this.diagnostics.push(`${context}: incoming control-flow edges have incompatible stack shapes`);
+      return this.cloneStackSnapshot(fallback);
+    }
+
+    const stack = reference.stack.map((item, index) => {
+      const alternatives = snapshots.map(snapshot => snapshot.stack[index]);
+      const equivalent = alternatives.every(alternative =>
+        alternative.expression.dataType === item.expression.dataType &&
+        alternative.expression.toNSS() === item.expression.toNSS()
+      );
+      if (equivalent) {
+        return { ...item };
+      }
+
+      return {
+        expression: NWScriptExpression.unknown(
+          `${context}: value differs across incoming control-flow edges`,
+          item.expression.dataType
+        ),
+        address: item.address,
+        slotWidth: item.slotWidth,
+      };
+    });
+
+    return {
+      stack,
+      stackPointer: reference.stackPointer,
+      basePointer: reference.basePointer,
+    };
+  }
+
+  private cloneStackSnapshot(snapshot: NWScriptStackSnapshot): NWScriptStackSnapshot {
+    return {
+      stack: snapshot.stack.map(item => ({ ...item })),
+      stackPointer: snapshot.stackPointer,
+      basePointer: snapshot.basePointer,
+    };
   }
 
   /**
@@ -1017,7 +1324,7 @@ export class NWScriptStackSimulator {
     switch (opCode) {
       case OP_LOGANDII: return '&&';
       case OP_LOGORII: return '||';
-      case OP_BOOLANDII: return '&&';
+      case OP_BOOLANDII: return '&';
       default: return '?';
     }
   }
@@ -1035,19 +1342,6 @@ export class NWScriptStackSimulator {
   }
 
   /**
-   * Get result data type from instruction type
-   */
-  private getResultType(type: number): NWScriptDataType {
-    switch (type) {
-      case 3: return NWScriptDataType.INTEGER;
-      case 4: return NWScriptDataType.FLOAT;
-      case 5: return NWScriptDataType.STRING;
-      case 6: return NWScriptDataType.OBJECT;
-      default: return NWScriptDataType.INTEGER;
-    }
-  }
-
-  /**
    * Generate a variable name
    */
   private generateVariableName(isGlobal: boolean, offsetSigned: number): string {
@@ -1057,4 +1351,3 @@ export class NWScriptStackSimulator {
     return `sp_${offsetSigned}`;
   }
 }
-

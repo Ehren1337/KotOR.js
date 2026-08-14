@@ -13,6 +13,8 @@ export interface NWScriptLocalInit {
   initialValue: any;
   hasInitializer: boolean; // Whether this variable has an explicit initializer
   instructionAddress: number; // Address of the RSADD instruction
+  /** CPDOWNSP whose value is represented directly on the declaration, when known. */
+  initializerWriteAddress?: number;
 }
 
 /**
@@ -31,9 +33,15 @@ export class NWScriptLocalVariableAnalyzer {
   private localInits: NWScriptLocalInit[] = [];
   private processedAddresses: Set<number> = new Set();
   private globalInitAddresses: Set<number> = new Set();
+  private ignoredAllocationAddresses: Set<number>;
 
-  constructor(script: NWScript, globalInits: NWScriptGlobalInit[] = []) {
+  constructor(
+    script: NWScript,
+    globalInits: NWScriptGlobalInit[] = [],
+    ignoredAllocationAddresses: Set<number> = new Set()
+  ) {
     this.script = script;
+    this.ignoredAllocationAddresses = ignoredAllocationAddresses;
     // Build set of global initialization addresses to exclude
     for (const globalInit of globalInits) {
       this.globalInitAddresses.add(globalInit.instructionAddress);
@@ -61,6 +69,7 @@ export class NWScriptLocalVariableAnalyzer {
     // First pass: Look for initialization patterns (RSADD -> CONST -> CPDOWNSP -> MOVSP)
     for (const rsadd of sortedInstructions) {
       if (rsadd.code !== OP_RSADD) continue;
+      if (this.ignoredAllocationAddresses.has(rsadd.address)) continue;
       
       // Skip if this is a global variable initialization
       if (this.globalInitAddresses.has(rsadd.address)) {
@@ -250,7 +259,8 @@ export class NWScriptLocalVariableAnalyzer {
               dataType: dataType,
               initialValue: undefined, // Expression will be extracted elsewhere
               hasInitializer: true, // Has initializer (function call result)
-              instructionAddress: rsadd.address
+              instructionAddress: rsadd.address,
+              initializerWriteAddress: cpdownspInstr.address
             });
 
             // Mark instructions as processed
@@ -341,9 +351,7 @@ export class NWScriptLocalVariableAnalyzer {
         break;
       case 6: // OBJECT
         initialValue = constInstr.object;
-        // Object value 0 means OBJECT_INVALID, which typically means no initializer
-        // Also, value 1 might be a default/placeholder that shouldn't be treated as initializer
-        if (initialValue === 0 || initialValue === undefined || initialValue === 1) {
+        if (initialValue === undefined) {
           hasInitializer = false;
           initialValue = undefined;
         }
@@ -359,8 +367,7 @@ export class NWScriptLocalVariableAnalyzer {
       }
     }
 
-    // For objects, if the value is 0, 1, or undefined after processing, treat as no initializer
-    if (dataType === NWScriptDataType.OBJECT && (initialValue === 0 || initialValue === 1 || initialValue === undefined)) {
+    if (dataType === NWScriptDataType.OBJECT && initialValue === undefined) {
       hasInitializer = false;
       initialValue = undefined;
     }
@@ -373,7 +380,8 @@ export class NWScriptLocalVariableAnalyzer {
       dataType: dataType,
       initialValue: initialValue,
       hasInitializer: hasInitializer,
-      instructionAddress: rsadd.address
+      instructionAddress: rsadd.address,
+      initializerWriteAddress: cpdownsp.address
     };
   }
 
@@ -398,4 +406,3 @@ export class NWScriptLocalVariableAnalyzer {
     return this.localInits.find(init => init.offset === offset) || null;
   }
 }
-

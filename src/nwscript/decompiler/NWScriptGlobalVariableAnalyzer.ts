@@ -5,6 +5,7 @@ import type { NWScriptBasicBlock } from "@/nwscript/decompiler/NWScriptBasicBloc
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
 import { OP_RSADD, OP_CONST, OP_CPDOWNSP, OP_CPDOWNBP, OP_MOVSP, OP_NEG, OP_ACTION, OP_SAVEBP, OP_JSR, OP_RESTOREBP, OP_RETN } from "@/nwscript/NWScriptOPCodes";
 import { EdgeType } from "@/nwscript/decompiler/NWScriptEdge";
+import { stackBytesForDataType } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
 
 /**
  * Represents a detected global variable initialization
@@ -325,15 +326,16 @@ export class NWScriptGlobalVariableAnalyzer {
       }
     }
 
-    // CRITICAL FIX: Recalculate BP offsets now that we know the total count
-    // After SAVEBP, BP points to the "top" of globals (just after the last global)
-    // Global 0 (first) is at BP - (N*4), Global 1 is at BP - ((N-1)*4), etc.
-    // Global i is at BP - ((N-i)*4) where N = total globals
-    const totalGlobals = this.globalInits.length;
+    // After SAVEBP, BP points just above the global frame. Account for physical width instead
+    // of assuming every recovered global occupies one dword.
+    const totalBytes = this.globalInits.reduce(
+      (sum, init) => sum + stackBytesForDataType(init.dataType),
+      0
+    );
+    let offset = -totalBytes;
     for (let i = 0; i < this.globalInits.length; i++) {
-      const globalIndex = i;
-      const offset = -4 * (totalGlobals - globalIndex);
       this.globalInits[i].offset = offset;
+      offset += stackBytesForDataType(this.globalInits[i].dataType);
     }
 
     return this.globalInits;
@@ -408,9 +410,7 @@ export class NWScriptGlobalVariableAnalyzer {
         break;
       case 6: // OBJECT
         initialValue = constInstr.object;
-        // Object value 0 means OBJECT_INVALID, which typically means no initializer
-        // Also, value 1 might be a default/placeholder that shouldn't be treated as initializer
-        if (initialValue === 0 || initialValue === undefined || initialValue === 1) {
+        if (initialValue === undefined) {
           hasInitializer = false;
           initialValue = undefined;
         }
@@ -426,9 +426,7 @@ export class NWScriptGlobalVariableAnalyzer {
       }
     }
 
-    // For objects, if the value is 0, 1, or undefined after processing, treat as no initializer
-    // Value 1 for objects is often OBJECT_INVALID or a placeholder
-    if (dataType === NWScriptDataType.OBJECT && (initialValue === 0 || initialValue === 1 || initialValue === undefined)) {
+    if (dataType === NWScriptDataType.OBJECT && initialValue === undefined) {
       hasInitializer = false;
       initialValue = undefined;
     }
@@ -711,4 +709,3 @@ export class NWScriptGlobalVariableAnalyzer {
     return { blocks, savebpAddress };
   }
 }
-
