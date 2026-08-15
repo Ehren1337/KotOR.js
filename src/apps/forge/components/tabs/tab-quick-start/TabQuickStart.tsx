@@ -1,13 +1,11 @@
 import React, { useState, useCallback, memo } from "react";
 import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { Project } from "@/apps/forge/Project";
-import { ProjectFileSystem } from "@/apps/forge/ProjectFileSystem";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { EditorFile } from "@/apps/forge/EditorFile";
 import { RecentProject } from "@/apps/forge/RecentProject";
 import { FileTypeManager } from "@/apps/forge/FileTypeManager";
-import * as KotOR from "@/apps/forge/KotOR";
 import "@/apps/forge/components/tabs/tab-quick-start/TabQuickStart.scss";
 import { ModalNewProjectState } from "@/apps/forge/states/modal/ModalNewProjectState";
 
@@ -51,79 +49,8 @@ export const TabQuickStart = memo(function TabQuickStart(props: BaseTabProps) {
 
   const onClickRecentProject = useCallback(async (e: React.MouseEvent, recentProject: RecentProject) => {
     e.preventDefault();
-    
     if(!recentProject) return;
-    
-    try{
-      // Show loading state
-      ForgeState.loaderShow();
-      
-      if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.ELECTRON){
-        // For Electron, use the stored path
-        const projectPath = recentProject.path;
-        if(!projectPath){
-          throw new Error('Project path not available');
-        }
-        ProjectFileSystem.rootDirectoryPath = projectPath;
-        const project = new Project();
-        const loaded = await project.load();
-        if(loaded){
-          await project.open();
-          await ProjectFileSystem.initializeProjectExplorer();
-        } else {
-          // Project failed to load, remove from recent list
-          ForgeState.removeRecentProject(recentProject);
-          alert('Failed to open project. It may have been moved or deleted.');
-        }
-      } else if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.BROWSER){
-        // For browser, try to restore the handle from storage
-        let handle = recentProject.handle;
-        
-        // If handle is not in memory, try to restore from IndexedDB
-        if(!handle && recentProject.name){
-          const handleKey = `project_handle_${recentProject.getIdentifier()}`;
-          try {
-            const { get } = await import('idb-keyval');
-            handle = await get(handleKey);
-          } catch(e) {
-            console.warn('Failed to restore handle from IndexedDB:', e);
-          }
-        }
-        
-        if(handle instanceof FileSystemDirectoryHandle){
-          // Verify handle is still valid
-          try{
-            await handle.queryPermission({ mode: 'read' });
-            ProjectFileSystem.rootDirectoryHandle = handle;
-            const project = new Project();
-            const loaded = await project.load();
-            if(loaded){
-              await project.open();
-              await ProjectFileSystem.initializeProjectExplorer();
-              // Update the stored handle in case it changed
-              await ForgeState.addRecentProject(handle);
-            } else {
-              throw new Error('Project failed to load');
-            }
-          } catch(permError){
-            // Handle permission denied or invalid - request new access
-            console.warn('Handle permission denied or invalid, requesting new access:', permError);
-            Project.OpenByDirectory();
-          }
-        } else {
-          // No handle available, request new directory access
-          Project.OpenByDirectory();
-        }
-      }
-      
-      ForgeState.loaderHide();
-    } catch(e){
-      console.error('Error opening recent project:', e);
-      ForgeState.loaderHide();
-      // Remove invalid project from recent list
-      await ForgeState.removeRecentProject(recentProject);
-      alert('Failed to open project. It may have been moved or deleted.');
-    }
+    await Project.OpenRecent(recentProject);
   }, []);
 
   const onClickRecentFile = useCallback((e: React.MouseEvent, file: EditorFile) => {

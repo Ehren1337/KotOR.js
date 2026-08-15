@@ -31,17 +31,9 @@ export function ModalSettings() {
   useEffectOnce(() => {
     ModalSettingsState.AddEventListener("onShow", handleShow);
     ModalSettingsState.AddEventListener("onHide", handleClose);
-    const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
-      if (e.key !== ",") return;
-      e.preventDefault();
-      ModalSettingsState.Show();
-    };
-    window.addEventListener("keydown", onKeyDown);
     return () => {
       ModalSettingsState.RemoveEventListener("onShow", handleShow);
       ModalSettingsState.RemoveEventListener("onHide", handleClose);
-      window.removeEventListener("keydown", onKeyDown);
     };
   });
 

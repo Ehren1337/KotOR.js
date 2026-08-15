@@ -61,6 +61,10 @@ export class TabTextEditorState extends TabState {
     return (this.file?.ext || '').toLowerCase() === 'ncs';
   }
 
+  get canCompile(): boolean {
+    return (this.file?.ext || '').toLowerCase() === 'nss';
+  }
+
   applyDecompile(script: KotOR.NWScript): void {
     const decompiler = new NWScriptDecompiler(script);
     const result = decompiler.decompileWithLineMap();

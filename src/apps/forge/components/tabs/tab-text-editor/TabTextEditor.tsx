@@ -210,29 +210,9 @@ export const TabTextEditor = function(props: any){
   }, [tab.tabSize]);
 
   // Handle keyboard shortcuts using TabState's keybinding system
-  const onKeyDown = (event: KeyboardEvent, tabState: TabTextEditorState) => {
+  const onKeyDown = (event: KeyboardEvent) => {
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-    
-    // Ctrl+S / Cmd+S - Save
-    if (isCtrlOrCmd && event.key === 's' && !event.shiftKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      tab.save();
-    }
-    // Ctrl+Shift+S / Cmd+Shift+S - Save As
-    else if (isCtrlOrCmd && event.key === 's' && event.shiftKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      tab.saveAs();
-    }
-    // Ctrl+B / Cmd+B - Compile
-    else if (isCtrlOrCmd && event.key === 'b') {
-      event.preventDefault();
-      event.stopPropagation();
-      tab.compile();
-    }
-    // Ctrl+Shift+F / Cmd+Shift+F - Format Document
-    else if (isCtrlOrCmd && event.key === 'f' && event.shiftKey) {
+    if (isCtrlOrCmd && event.key === 'f' && event.shiftKey) {
       event.preventDefault();
       event.stopPropagation();
       if(tab.editor && tab.monaco) {

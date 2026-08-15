@@ -1,10 +1,9 @@
-import React, { useState, useCallback, useMemo, memo } from "react";
+import React, { useState, useCallback, memo } from "react";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
-import { MenuItem } from "@/apps/forge/components/MenuItem";
 import { MenuTopState } from "@/apps/forge/states/MenuTopState";
-import { MenuTopItem } from "@/apps/forge/MenuTopItem";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
-import { FileTypeManager } from "@/apps/forge/FileTypeManager";
+import { MenuBar, ForgeMenuItem } from "@/apps/forge/components/common/MenuBar";
+import "@/apps/forge/commands/registerForgeCommands";
 
 export interface MenuTopProps {
   className?: string;
@@ -12,62 +11,41 @@ export interface MenuTopProps {
 
 export const MenuTop = memo(function MenuTop(props: MenuTopProps = {}) {
   const { className = '' } = props;
+  const [items, setItems] = useState<ForgeMenuItem[]>(() => [...MenuTopState.items]);
 
-  const [items, setItems] = useState<MenuTopItem[]>([]);
-
-  // Memoize the recent files update logic
-  const updateRecentFilesMenuItem = useCallback(() => {
-    MenuTopState.menuItemRecentFiles.items = [];
-    
-    ForgeState.recentFiles.forEach((file) => {
-      MenuTopState.menuItemRecentFiles.items.push(
-        new MenuTopItem({
-          name: `${file.getFilename()} ${file.getPrettyPath()}`,
-          onClick: (menuItem: MenuTopItem) => {
-            FileTypeManager.onOpenResource(file);
-          }
-        })
-      );
-    });
-    
-    MenuTopState.menuItemRecentFiles.rebuild();
+  const refresh = useCallback(() => {
+    MenuTopState.rebuild();
+    setItems([...MenuTopState.items]);
   }, []);
-
-  // Memoize the event handler
-  const onRecentFilesUpdated = useCallback(() => {
-    updateRecentFilesMenuItem();
-  }, [updateRecentFilesMenuItem]);
 
   const onMenuTopItemsUpdated = useCallback(() => {
     setItems([...MenuTopState.items]);
   }, []);
 
-  // Component lifecycle
   useEffectOnce(() => {
     setItems([...MenuTopState.items]);
-    ForgeState.addEventListener('onRecentFilesUpdated', onRecentFilesUpdated);
+    ForgeState.addEventListener('onRecentFilesUpdated', refresh);
+    ForgeState.addEventListener('onRecentProjectsUpdated', refresh);
+    ForgeState.addEventListener('onExplorerPaneToggle', refresh);
     MenuTopState.addEventListener('onMenuTopItemsUpdated', onMenuTopItemsUpdated);
-    updateRecentFilesMenuItem();
+    const manager = ForgeState.tabManager;
+    manager?.addEventListener('onTabShow', refresh);
+    manager?.addEventListener('onTabAdded', refresh);
+    manager?.addEventListener('onTabRemoved', refresh);
+    refresh();
 
     return () => {
-      ForgeState.removeEventListener('onRecentFilesUpdated', onRecentFilesUpdated);
+      ForgeState.removeEventListener('onRecentFilesUpdated', refresh);
+      ForgeState.removeEventListener('onRecentProjectsUpdated', refresh);
+      ForgeState.removeEventListener('onExplorerPaneToggle', refresh);
       MenuTopState.removeEventListener('onMenuTopItemsUpdated', onMenuTopItemsUpdated);
+      manager?.removeEventListener('onTabShow', refresh);
+      manager?.removeEventListener('onTabAdded', refresh);
+      manager?.removeEventListener('onTabRemoved', refresh);
     };
   });
 
-  // Memoize menu items rendering
-  const menuItems = useMemo(() => (
-    items.map((item) => (
-      <MenuItem 
-        key={`menu-item-${item.uuid}`} 
-        item={item}
-      />
-    ))
-  ), [items]);
-
   return (
-    <nav className={`forge-menubar ${className}`.trim()} role="menubar">
-      {menuItems}
-    </nav>
+    <MenuBar items={items} variant="flow" className={className} />
   );
 });

@@ -33,6 +33,7 @@ export class ForgeState {
 
   static recentFiles: EditorFile[] = [];
   static recentProjects: RecentProject[] = [];
+  static explorerPaneOpen: boolean = true;
 
   static #persistOpenTabs = (): void => {
     ForgeState.saveOpenTabsState();
@@ -90,6 +91,15 @@ export class ForgeState {
 
   static triggerEventListener<T>(type: T, args: any[] = []): void {
     this.processEventListener(type, args);
+  }
+
+  static setExplorerPaneOpen(open: boolean): void {
+    this.explorerPaneOpen = !!open;
+    this.processEventListener('onExplorerPaneToggle', [this.explorerPaneOpen]);
+  }
+
+  static toggleExplorerPane(): void {
+    this.setExplorerPaneOpen(!this.explorerPaneOpen);
   }
 
   /**
@@ -151,9 +161,9 @@ export class ForgeState {
         KotOR.AudioEngine.GAIN_MUSIC = 0.75;
         KotOR.AudioEngine.GAIN_MOVIE = 0.75;
         KotOR.AudioEngine.GAIN_GUI = 0.75;
-        MenuTopState.buildAudioMenuItems();
+        MenuTopState.rebuild();
         AudioPlayerState.AddEventListener("onFloatingMiniPlayerPrefs", () => {
-          MenuTopState.buildAudioMenuItems();
+          MenuTopState.rebuild();
         });
         //ConfigClient.get('Game.debug.light_helpers') ? true : false
         // KotOR.LightManager.toggleLightHelpers();
@@ -327,6 +337,20 @@ export class ForgeState {
     }
   }
 
+  static clearRecentFiles(){
+    ForgeState.recentFiles.splice(0, ForgeState.recentFiles.length);
+    KotOR.ConfigClient.options.recent_files = ForgeState.recentFiles;
+    this.processEventListener('onRecentFilesUpdated', []);
+    this.saveState();
+  }
+
+  static async clearRecentProjects(){
+    ForgeState.recentProjects.splice(0, ForgeState.recentProjects.length);
+    KotOR.ConfigClient.options.recent_projects = ForgeState.recentProjects;
+    this.processEventListener('onRecentProjectsUpdated', []);
+    this.saveState();
+  }
+
   static removeRecentFile(file: EditorFile){
     if(!file) return;
     let file_path = file.toReferenceURI();
@@ -456,6 +480,21 @@ export class ForgeState {
       });
       this.saveState();
       this.processEventListener('onRecentProjectsUpdated', []);
+    }
+  }
+
+  static async saveAllEditorTabs(): Promise<void> {
+    const tabs = [...(ForgeState.tabManager?.tabs || [])];
+    for(let i = 0; i < tabs.length; i++){
+      const tab = tabs[i];
+      if(!tab?.file){
+        continue;
+      }
+      try{
+        await tab.save();
+      }catch(e){
+        console.error('ForgeState.saveAllEditorTabs', e);
+      }
     }
   }
 

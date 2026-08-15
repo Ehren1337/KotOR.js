@@ -130,6 +130,10 @@ export class TabState extends EventListenerModel {
     return this.redoStack.length > 0;
   }
 
+  get canCompile(): boolean {
+    return false;
+  }
+
   constructor(options: BaseTabStateOptions = {}){
     super();
     this.isDestroyed = false;
@@ -171,13 +175,6 @@ export class TabState extends EventListenerModel {
     }
     
     this.#_onKeyDown = (e: KeyboardEvent) => {
-      if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w'){
-        if(this.isClosable){
-          e.preventDefault();
-          this.remove();
-          return;
-        }
-      }
       if ((e.ctrlKey || e.metaKey) && !e.altKey && this.shouldHandleUndoKeyboard(e)) {
         if (e.key === 'z') {
           e.preventDefault();

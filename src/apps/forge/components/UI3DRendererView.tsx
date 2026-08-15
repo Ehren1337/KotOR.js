@@ -68,19 +68,19 @@ export const UI3DRendererView = function(props: UI3DRendererViewProps){
 
   return (
     <div className="UI3DRendererView-container" style={{position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,}}>
-      {props.showMenuBar && <MenuBar items={menuItems} />}
+      {props.showMenuBar && <MenuBar items={menuItems} variant="overlay" />}
       <canvas 
         ref={canvasRef} 
         className="UI3DRendererView-canvas" 
         tabIndex={1} 
         style={{ 
           position: 'absolute',
-          top: props.showMenuBar ? '22px' : 0,
+          top: props.showMenuBar ? 'var(--forge-menubar-height)' : 0,
           left: 0,
           right: 0,
           bottom: 0,
           width: '100%',
-          height: 'calc(100% - ' + (props.showMenuBar ? '22px' : '0') + ')',
+          height: props.showMenuBar ? 'calc(100% - var(--forge-menubar-height))' : '100%',
         }} 
       />
       {props.children}

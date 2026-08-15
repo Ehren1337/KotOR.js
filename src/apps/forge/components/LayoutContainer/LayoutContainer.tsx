@@ -48,6 +48,8 @@ export interface LayoutContainerProps {
   eastSize?: number;
   westSize?: number;
   onEastSizeChange?: (size: number) => void;
+  westOpen?: boolean;
+  onWestOpenChange?: (open: boolean) => void;
   children?: React.ReactNode;
 }
 
@@ -85,6 +87,14 @@ export const LayoutContainer = React.memo<LayoutContainerProps>(function LayoutC
   });
 
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const westIsControlled = typeof props.westOpen === "boolean";
+
+  useEffect(() => {
+    if (!westIsControlled) {
+      return;
+    }
+    setLayoutState((prev) => (prev.westOpen === props.westOpen ? prev : { ...prev, westOpen: !!props.westOpen }));
+  }, [westIsControlled, props.westOpen]);
 
   // Content availability
   const hasNorthContent = Boolean(props.northContent);
@@ -158,11 +168,15 @@ export const LayoutContainer = React.memo<LayoutContainerProps>(function LayoutC
 
   const onPaneToggle = useCallback((e: React.MouseEvent, handle: string) => {
     e.preventDefault();
+    if (handle === "west" && westIsControlled && props.onWestOpenChange) {
+      props.onWestOpenChange(!layoutState.westOpen);
+      return;
+    }
     setLayoutState(prevState => ({
       ...prevState,
       [`${handle}Open`]: !prevState[`${handle}Open` as keyof LayoutState] as boolean
     }));
-  }, []);
+  }, [westIsControlled, props.onWestOpenChange, layoutState.westOpen]);
 
   const onWindowResize = useCallback(() => {
     if (refs.current.container) {
