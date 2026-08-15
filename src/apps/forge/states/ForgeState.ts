@@ -484,7 +484,7 @@ export class ForgeState {
   static openFile(){
     ForgeFileSystem.OpenFile().then( async (response: ForgeFileSystemResponse) => {
       if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.ELECTRON){
-        if(Array.isArray(response.paths)){
+        if(Array.isArray(response.paths) && response.paths[0]){
           const file_path = response.paths[0];
           const parsed = pathParse(file_path);
           if(parsed.ext == 'mdl'){
@@ -515,7 +515,7 @@ export class ForgeState {
           }
         }
       }else{
-        if(Array.isArray(response.handles)){
+        if(Array.isArray(response.handles) && response.handles[0]){
           const [handle] = response.handles as FileSystemFileHandle[];
           const parsed = pathParse(handle.name);
 
@@ -528,6 +528,9 @@ export class ForgeState {
               ext: ['.mdx'],
             });
             const [mdxHandle] = mdxResponse.handles as FileSystemFileHandle[];
+            if(!mdxHandle){
+              return;
+            }
 
             document.title = originalTitle;
 

@@ -111,7 +111,7 @@ export class ForgeFileSystem {
             multiple: options.multiple,
           });
         }).catch((e: any) => {
-          console.error(e);
+          if(e?.name !== 'AbortError') console.error(e);
           resolve({
             type: ForgeFileSystemResponseType.FILE_SYSTEM_HANDLE,
             handles: [],
@@ -137,7 +137,7 @@ export class ForgeFileSystem {
           });
         }
       }else{
-        if(Array.isArray(response.handles)){
+        if(Array.isArray(response.handles) && response.handles[0]){
           const [handle] = response.handles as FileSystemFileHandle[];
           let file = await handle.getFile();
           return new Uint8Array( await file.arrayBuffer() );

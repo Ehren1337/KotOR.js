@@ -20,6 +20,7 @@ import { LYTLanguageService } from "@/apps/forge/states/LYTLanguageService";
 import { TXILanguageService } from "@/apps/forge/states/TXILanguageService";
 import { SemanticFunctionNode } from "@/nwscript/compiler/ASTSemanticTypes";
 import { compileNssSource, resolveIncludesForNss } from "@/apps/forge/helpers/ForgeNWScriptCompile";
+import { compiledNcsOverrideRelativePath, GAME_OVERRIDE_DIR } from "@/apps/forge/helpers/forgeNcsCompilePaths";
 import { NWScriptDecompiler } from "@/nwscript/decompiler/NWScriptDecompiler";
 import {
   codeOffsetForNssLine,
@@ -514,16 +515,66 @@ export class TabTextEditorState extends TabState {
     return `${base}.ncs`;
   }
 
+  private async writeNcsToGameOverride(ncsBytes: Uint8Array): Promise<boolean> {
+    const outRel = compiledNcsOverrideRelativePath(this.file?.resref);
+    try {
+      const mk = await KotOR.GameFileSystem.mkdir(GAME_OVERRIDE_DIR, { recursive: true });
+      if(mk === false){
+        console.error('Compile: could not create', GAME_OVERRIDE_DIR);
+        return false;
+      }
+      const ok = await KotOR.GameFileSystem.writeFile(outRel, ncsBytes);
+      if(ok){
+        console.log('Compile: wrote', outRel, '(game Override)');
+        return true;
+      }
+      console.error('Compile: failed writing', outRel);
+      return false;
+    } catch (e) {
+      console.error('Compile: failed writing', outRel, e);
+      return false;
+    }
+  }
+
+  private async promptSaveCompiledNcs(ncsBytes: Uint8Array, ncsFileName: string): Promise<boolean> {
+    if(KotOR.ApplicationProfile.ENV != KotOR.ApplicationEnvironment.BROWSER){
+      return false;
+    }
+    try{
+      const h = await window.showSaveFilePicker({
+        suggestedName: ncsFileName,
+        types: [{
+          description: 'Compiled NWScript (.ncs)',
+          accept: { 'application/octet-stream': ['.ncs'] },
+        }],
+      });
+      const w = await h.createWritable();
+      await w.write(new Uint8Array(ncsBytes));
+      await w.close();
+      console.log('Compile: wrote', h.name);
+      return true;
+    }catch(e: any){
+      if(e?.name !== 'AbortError') console.error('Compile: save failed', e);
+      return false;
+    }
+  }
+
   private async writeCompiledNcsToDisk(ncsBytes: Uint8Array): Promise<void> {
     const ncsFileName = this.nwscriptCompiledNcsFileName();
     const f = this.file;
-    if(!f?.path && !f?.handle){
-      console.warn('Compile: save or open this NSS from disk or your project folder to emit a .ncs next to it');
+
+    // KEY/BIF (and other archives) have no sibling folder — dump into game Override,
+    // same as the original tools when compiling a packed script.
+    if(f?.archive_path){
+      if(await this.writeNcsToGameOverride(ncsBytes)) return;
+      await this.promptSaveCompiledNcs(ncsBytes, ncsFileName);
       return;
     }
 
-    if(f.archive_path){
-      console.warn('Compile: NSS opened from an archive has no sibling folder — export the script or edit it under your game/project tree to save .ncs beside it.');
+    if(!f?.path && !f?.handle){
+      if(await this.writeNcsToGameOverride(ncsBytes)) return;
+      console.warn('Compile: save or open this NSS from disk or your project folder to emit a .ncs next to it');
+      await this.promptSaveCompiledNcs(ncsBytes, ncsFileName);
       return;
     }
 
@@ -533,6 +584,7 @@ export class TabTextEditorState extends TabState {
     try {
       if(f.useGameFileSystem || f.useProjectFileSystem){
         if(!rawPath){
+          if(await this.writeNcsToGameOverride(ncsBytes)) return;
           console.warn('Compile: missing path for NSS on disk/virtual tree — .ncs not written');
           return;
         }
@@ -561,27 +613,15 @@ export class TabTextEditorState extends TabState {
         return;
       }
 
+      if(await this.writeNcsToGameOverride(ncsBytes)) return;
+
       if(
         KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.BROWSER &&
         f.handle &&
         f.useSystemFileSystem
       ){
         console.warn('Compile: browser cannot write next to the opened file — choose where to save the .ncs.');
-        try{
-          const h = await window.showSaveFilePicker({
-            suggestedName: ncsFileName,
-            types: [{
-              description: 'Compiled NWScript (.ncs)',
-              accept: { 'application/octet-stream': ['.ncs'] },
-            }],
-          });
-          const w = await h.createWritable();
-          await w.write(new Uint8Array(ncsBytes));
-          await w.close();
-          console.log('Compile: wrote', h.name);
-        }catch(e: any){
-          if(e?.name !== 'AbortError') console.error('Compile: save failed', e);
-        }
+        await this.promptSaveCompiledNcs(ncsBytes, ncsFileName);
         return;
       }
 
