@@ -3,9 +3,13 @@ import type { NWScriptBasicBlock } from "@/nwscript/decompiler/NWScriptBasicBloc
 import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
 import { EdgeType } from "@/nwscript/decompiler/NWScriptEdge";
-import { OP_JZ, OP_JNZ, OP_JMP, OP_RETN, OP_RESTOREBP, OP_NOP, OP_INCISP, OP_DECIBP, OP_INCIBP, OP_DECISP, OP_CPTOPSP, OP_CPDOWNSP, OP_CPTOPBP, OP_CPDOWNBP, OP_EQUAL, OP_CONST, OP_MOVSP } from "@/nwscript/NWScriptOPCodes";
+import { OP_JZ, OP_JNZ, OP_JMP, OP_RETN, OP_RESTOREBP, OP_NOP, OP_INCISP, OP_DECIBP, OP_INCIBP, OP_DECISP, OP_CPTOPSP, OP_CPDOWNSP, OP_CPTOPBP, OP_CPDOWNBP, OP_EQUAL, OP_CONST, OP_MOVSP, OP_ACTION, OP_JSR, OP_RSADD } from "@/nwscript/NWScriptOPCodes";
 import { nwscriptDecompilerDebug } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
 import { toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
+import {
+  indexShortCircuitRegions,
+  type NWScriptShortCircuitRegion,
+} from "@/nwscript/decompiler/NWScriptShortCircuitRegion";
 
 /**
  * ControlNode represents a node in the control flow tree.
@@ -19,7 +23,8 @@ export type ControlNode =
   | DoWhileNode
   | ForNode
   | SwitchNode
-  | SequenceNode;
+  | SequenceNode
+  | ExpressionRegionNode;
 
 /**
  * A basic block node (leaf node)
@@ -103,6 +108,8 @@ export interface SwitchNode {
   defaultCase: ControlNode | null; // Default case
   /** Merge / cleanup after dispatch — break in switch jumps here */
   switchExitBlock?: NWScriptBasicBlock;
+  /** Compiler compare/JNZ ladder rows; not source statements. */
+  switchDispatchBlocks?: NWScriptBasicBlock[];
 }
 
 /**
@@ -119,6 +126,18 @@ export interface SwitchCase {
 export interface SequenceNode {
   type: 'sequence';
   nodes: ControlNode[]; // Sequence of nodes
+}
+
+/**
+ * Compiler-generated `&&` / `||` value diamond. Not a source-level `if`.
+ */
+export interface ExpressionRegionNode {
+  type: 'expression_region';
+  header: NWScriptBasicBlock;
+  join: NWScriptBasicBlock;
+  evaluateBlocks: NWScriptBasicBlock[];
+  bypassBlocks: NWScriptBasicBlock[];
+  operator: 'and' | 'or';
 }
 
 /**
@@ -194,9 +213,22 @@ export class NWScriptControlStructureBuilder {
   private processedBlocks: Set<NWScriptBasicBlock> = new Set();
   /** Basic blocks touched by merged switch-dispatch probing — avoids re-identifying the same CMP ladder from interior headers */
   private switchDispatchOccupiedBlocks: Set<number> = new Set();
+  private shortCircuitByHeader: Map<NWScriptBasicBlock, NWScriptShortCircuitRegion> = new Map();
+  private shortCircuitCovering: Map<NWScriptBasicBlock, NWScriptShortCircuitRegion> = new Map();
+  private lastProcedure: Procedure | null = null;
 
   constructor(cfg: NWScriptControlFlowGraph) {
     this.cfg = cfg;
+  }
+
+  private indexLogicalRegions(): void {
+    const indexed = indexShortCircuitRegions(this.cfg);
+    this.shortCircuitByHeader = indexed.byHeader;
+    this.shortCircuitCovering = indexed.covering;
+  }
+
+  private shortCircuitForBlock(block: NWScriptBasicBlock): NWScriptShortCircuitRegion | undefined {
+    return this.shortCircuitCovering.get(block) ?? this.shortCircuitByHeader.get(block);
   }
 
   /**
@@ -205,6 +237,7 @@ export class NWScriptControlStructureBuilder {
   analyze(): NWScriptControlStructure[] {
     this.structures = [];
     this.processedBlocks.clear();
+    this.indexLogicalRegions();
 
     if (!this.cfg.entryBlock) {
       return [];
@@ -248,6 +281,14 @@ export class NWScriptControlStructureBuilder {
         }
         if (switchStruct.exitBlock) {
           this.processedBlocks.add(switchStruct.exitBlock);
+        }
+        continue;
+      }
+
+      const shortCircuit = this.shortCircuitForBlock(block);
+      if (shortCircuit) {
+        for (const covered of shortCircuit.coveredBlocks) {
+          this.processedBlocks.add(covered);
         }
         continue;
       }
@@ -477,6 +518,9 @@ export class NWScriptControlStructureBuilder {
    * Pattern: Block with JZ/JNZ -> two successor paths
    */
   private identifyIfElse(block: NWScriptBasicBlock, skipElseIfChainDetection = false): NWScriptControlStructure | null {
+    if (this.shortCircuitCovering.has(block)) {
+      return null;
+    }
     if (block.exitType !== 'conditional') {
       return null;
     }
@@ -1969,6 +2013,7 @@ export class NWScriptControlStructureBuilder {
    */
   buildProcedure(entry: NWScriptBasicBlock): ControlNode {
     this.switchDispatchOccupiedBlocks.clear();
+    this.indexLogicalRegions();
     // Ensure loops have been identified (needed for identifyLoop() to work)
     // Check if any blocks have loop flags set - if not, identify loops first
     const hasLoopFlags = Array.from(this.cfg.blocks.values()).some(b => b.isLoopHeader || b.isLoopBody);
@@ -1978,8 +2023,8 @@ export class NWScriptControlStructureBuilder {
     
     // First, identify the procedure region
     const procedure = this.identifyProcedure(entry);
-    
-    // Build the control node tree for this procedure
+    this.lastProcedure = procedure;
+
     return this.buildControlNodeTree(procedure);
   }
 
@@ -2140,6 +2185,31 @@ export class NWScriptControlStructureBuilder {
       return this.buildSwitchNode(switchStruct, procedure, processed);
     }
 
+    const shortCircuit = this.shortCircuitForBlock(block);
+    if (shortCircuit) {
+      if (block !== shortCircuit.header) {
+        if (!processed.has(shortCircuit.header) && procedure.blocks.has(shortCircuit.header)) {
+          return this.buildNodeFromBlock(shortCircuit.header, procedure, processed);
+        }
+        processed.add(block);
+        return null;
+      }
+      if (processed.has(shortCircuit.header)) {
+        return null;
+      }
+      for (const covered of shortCircuit.coveredBlocks) {
+        processed.add(covered);
+      }
+      return {
+        type: 'expression_region',
+        header: shortCircuit.header,
+        join: shortCircuit.join,
+        evaluateBlocks: shortCircuit.evaluateBlocks,
+        bypassBlocks: shortCircuit.bypassBlocks,
+        operator: shortCircuit.operator,
+      };
+    }
+
     const ifElse = this.identifyIfElse(block);
     if (ifElse && this.isStructureInProcedure(ifElse, procedure)) {
       processed.add(ifElse.headerBlock);
@@ -2236,6 +2306,9 @@ export class NWScriptControlStructureBuilder {
           nodes: conditionBlocks.map(block => ({ type: 'basic_block' as const, block })),
         };
     const body = this.buildLoopBodyNode(structure, procedure, processed);
+    if (structure.incrementBlock) {
+      processed.add(structure.incrementBlock);
+    }
 
     switch (structure.type) {
       case ControlStructureType.WHILE:
@@ -2289,128 +2362,113 @@ export class NWScriptControlStructureBuilder {
 
   /**
    * Structure a natural-loop region without allowing generic merge discovery to walk through
-   * its back edge into later loops. This is especially important for `continue`/`break` arms,
-   * whose first common post-dominator is often outside the loop.
+   * its back edge into later loops. Increment/header/exit stay control transfers, not branch
+   * bodies: `identifyIfElse` may use the increment as a merge, but `ForNode.increment` owns it.
    */
   private buildLoopBodyNode(
     structure: NWScriptControlStructure,
     procedure: Procedure,
     processed: Set<NWScriptBasicBlock>
   ): ControlNode {
-    const allowed = new Set(
-      structure.bodyBlocks.filter(block => procedure.blocks.has(block) && !block.isUnreachable)
-    );
-    if (allowed.size === 0) {
-      return { type: 'sequence', nodes: [] };
-    }
-
-    const stopBlocks = new Set<NWScriptBasicBlock>([
+    const reserved = new Set<NWScriptBasicBlock>([
       structure.headerBlock,
       structure.exitBlock,
       ...(structure.conditionBlocks ?? []),
       ...(structure.incrementBlock ? [structure.incrementBlock] : []),
     ]);
-    const nodes: ControlNode[] = [];
-    let current = Array.from(allowed)
-      .sort((left, right) => left.startInstruction.address - right.startInstruction.address)[0];
-
-    const directStop = (block: NWScriptBasicBlock): NWScriptBasicBlock | undefined =>
-      this.cfg.getIntraProceduralSuccessors(block, false)
-        .find(successor => stopBlocks.has(successor));
-
-    const armNode = (block: NWScriptBasicBlock): ControlNode => {
-      processed.add(block);
-      return { type: 'basic_block', block };
-    };
-    const isBareStopJump = (block: NWScriptBasicBlock): boolean =>
-      block.instructions.length === 1 &&
-      block.endInstruction.code === OP_JMP &&
-      directStop(block) !== undefined;
-
-    while (current && allowed.has(current) && !processed.has(current)) {
-      if (current.exitType === 'conditional') {
-        const successors = this.cfg.getIntraProceduralSuccessors(current, false);
-        let truePath = successors.find(successor =>
-          this.cfg.getEdge(current, successor)?.type === EdgeType.TRUE_BRANCH
-        );
-        let falsePath = successors.find(successor =>
-          this.cfg.getEdge(current, successor)?.type === EdgeType.FALSE_BRANCH
-        );
-        if (!truePath || !falsePath) {
-          [truePath, falsePath] = successors;
-        }
-
-        if (truePath && falsePath) {
-          const trueStops = directStop(truePath);
-          const falseStops = directStop(falsePath);
-          if (trueStops || falseStops) {
-            processed.add(current);
-            const condition: BasicBlockNode = { type: 'basic_block', block: current };
-            if (trueStops && falseStops) {
-              if (isBareStopJump(truePath) && !isBareStopJump(falsePath)) {
-                nodes.push({ type: 'if', condition, body: armNode(truePath) });
-                current = falsePath;
-                continue;
-              }
-              if (isBareStopJump(falsePath) && !isBareStopJump(truePath)) {
-                nodes.push({
-                  type: 'if',
-                  condition,
-                  body: armNode(falsePath),
-                  invertCondition: true,
-                });
-                current = truePath;
-                continue;
-              }
-              nodes.push({
-                type: 'if_else',
-                condition,
-                thenBody: armNode(truePath),
-                elseBody: armNode(falsePath),
-              });
-              current = undefined;
-              break;
-            }
-            if (trueStops) {
-              nodes.push({ type: 'if', condition, body: armNode(truePath) });
-              current = falsePath;
-              continue;
-            }
-            nodes.push({
-              type: 'if',
-              condition,
-              body: armNode(falsePath),
-              invertCondition: true,
-            });
-            current = truePath;
-            continue;
-          }
-        }
-      }
-
-      processed.add(current);
-      const terminalTarget = directStop(current);
-      nodes.push({
-        type: 'basic_block',
-        block: current,
-        suppressTerminalLoopJump:
-          current.endInstruction.code === OP_JMP &&
-          (terminalTarget === structure.headerBlock ||
-            terminalTarget === structure.incrementBlock),
-      });
-      current = this.cfg.getIntraProceduralSuccessors(current, false)
-        .find(successor => allowed.has(successor) && !processed.has(successor));
+    const bodyAllowed = new Set(
+      structure.bodyBlocks.filter(block =>
+        procedure.blocks.has(block) &&
+        !block.isUnreachable &&
+        !reserved.has(block)
+      )
+    );
+    if (bodyAllowed.size === 0) {
+      return { type: 'sequence', nodes: [] };
     }
 
-    for (const block of Array.from(allowed)
-      .sort((left, right) => left.startInstruction.address - right.startInstruction.address)) {
-      if (!processed.has(block)) {
+    const miniBlocks = new Set(bodyAllowed);
+    if (structure.incrementBlock && procedure.blocks.has(structure.incrementBlock)) {
+      miniBlocks.add(structure.incrementBlock);
+    }
+    const mini: Procedure = {
+      entry: Array.from(bodyAllowed).sort(
+        (left, right) => left.startInstruction.address - right.startInstruction.address
+      )[0] ?? procedure.entry,
+      blocks: miniBlocks,
+      exitBlocks: procedure.exitBlocks,
+    };
+
+    const nodes: ControlNode[] = [];
+    const ordered = Array.from(bodyAllowed)
+      .sort((left, right) => left.startInstruction.address - right.startInstruction.address);
+    for (const block of ordered) {
+      if (processed.has(block)) {
+        continue;
+      }
+      const covering = this.shortCircuitCovering.get(block);
+      if (covering && covering.header !== block && processed.has(covering.header)) {
+        continue;
+      }
+      const node = this.buildNodeFromBlock(block, mini, processed);
+      if (node) {
+        this.suppressNaturalLoopLatch(node, structure);
+        nodes.push(node);
+      }
+    }
+
+    for (const block of ordered) {
+      if (!processed.has(block) && !reserved.has(block)) {
         processed.add(block);
-        nodes.push({ type: 'basic_block', block });
+        nodes.push({
+          type: 'basic_block',
+          block,
+          suppressTerminalLoopJump: this.isNaturalLoopLatch(block, structure),
+        });
       }
     }
 
     return nodes.length === 1 ? nodes[0] : { type: 'sequence', nodes };
+  }
+
+  private isNaturalLoopLatch(
+    block: NWScriptBasicBlock,
+    structure: NWScriptControlStructure
+  ): boolean {
+    if (block.endInstruction.code !== OP_JMP || block.instructions.length !== 1) {
+      return false;
+    }
+    const target = this.cfg.getIntraProceduralSuccessors(block, false)[0];
+    return target === structure.headerBlock || target === structure.incrementBlock;
+  }
+
+  private suppressNaturalLoopLatch(node: ControlNode, structure: NWScriptControlStructure): void {
+    switch (node.type) {
+      case 'basic_block':
+        if (this.isNaturalLoopLatch(node.block, structure)) {
+          node.suppressTerminalLoopJump = true;
+        }
+        return;
+      case 'sequence':
+        for (const child of node.nodes) {
+          this.suppressNaturalLoopLatch(child, structure);
+        }
+        return;
+      case 'if':
+        this.suppressNaturalLoopLatch(node.body, structure);
+        return;
+      case 'if_else':
+        this.suppressNaturalLoopLatch(node.thenBody, structure);
+        this.suppressNaturalLoopLatch(node.elseBody, structure);
+        return;
+      case 'while':
+      case 'do_while':
+      case 'for':
+        this.suppressNaturalLoopLatch(node.body, structure);
+        return;
+      default:
+        return;
+    }
   }
 
   /**
@@ -2466,6 +2524,7 @@ export class NWScriptControlStructureBuilder {
       cases: cases,
       defaultCase: defaultCase,
       switchExitBlock: structure.exitBlock,
+      switchDispatchBlocks: structure.switchDispatchBlocks,
     };
   }
 
@@ -2750,4 +2809,202 @@ export class NWScriptControlStructureBuilder {
       }))
     };
   }
+
+  auditControlNodeCoverage(procedure: Procedure, root: ControlNode): ControlNodeCoverageAudit {
+    return auditControlNodeCoverage(
+      this.cfg,
+      procedure,
+      root,
+      this.shortCircuitCovering
+    );
+  }
+
+  auditLastProcedure(root: ControlNode): ControlNodeCoverageAudit | undefined {
+    if (!this.lastProcedure) {
+      return undefined;
+    }
+    return this.auditControlNodeCoverage(this.lastProcedure, root);
+  }
+}
+
+const SEMANTIC_OPCODES = new Set<number>([
+  OP_ACTION,
+  OP_JSR,
+  OP_RSADD,
+  OP_CPDOWNSP,
+  OP_CPDOWNBP,
+  OP_INCISP,
+  OP_DECISP,
+  OP_INCIBP,
+  OP_DECIBP,
+]);
+
+export interface ControlNodeCoverageAudit {
+  owned: Set<NWScriptBasicBlock>;
+  scaffolding: Set<NWScriptBasicBlock>;
+  missing: NWScriptBasicBlock[];
+  duplicate: NWScriptBasicBlock[];
+}
+
+/**
+ * Collect every basic block referenced by a ControlNode tree, counting duplicate ownership.
+ */
+export function collectControlNodeBlocks(
+  node: ControlNode,
+  counts: Map<NWScriptBasicBlock, number> = new Map()
+): Set<NWScriptBasicBlock> {
+  const visit = (current: ControlNode): void => {
+    switch (current.type) {
+      case 'basic_block':
+        bumpOwnership(counts, current.block);
+        return;
+      case 'if':
+        visit(current.condition);
+        visit(current.body);
+        return;
+      case 'if_else':
+        visit(current.condition);
+        visit(current.thenBody);
+        visit(current.elseBody);
+        return;
+      case 'while':
+      case 'do_while':
+        visit(current.condition);
+        visit(current.body);
+        return;
+      case 'for':
+        if (current.init) visit(current.init);
+        visit(current.condition);
+        visit(current.body);
+        if (current.increment) visit(current.increment);
+        return;
+      case 'switch':
+        visit(current.expression);
+        for (const switchCase of current.cases) {
+          visit(switchCase.body);
+        }
+        if (current.defaultCase) visit(current.defaultCase);
+        return;
+      case 'sequence':
+        for (const child of current.nodes) {
+          visit(child);
+        }
+        return;
+      case 'expression_region':
+        for (const block of current.evaluateBlocks) {
+          bumpOwnership(counts, block);
+        }
+        return;
+    }
+  };
+  visit(node);
+  return new Set(counts.keys());
+}
+
+function bumpOwnership(
+  counts: Map<NWScriptBasicBlock, number>,
+  block: NWScriptBasicBlock
+): void {
+  counts.set(block, (counts.get(block) ?? 0) + 1);
+}
+
+function blockHasSemanticInstructions(block: NWScriptBasicBlock): boolean {
+  return block.instructions.some(instruction => SEMANTIC_OPCODES.has(instruction.code));
+}
+
+function collectScaffoldingBlocks(
+  root: ControlNode,
+  covering: Map<NWScriptBasicBlock, NWScriptShortCircuitRegion>
+): Set<NWScriptBasicBlock> {
+  const scaffolding = new Set<NWScriptBasicBlock>();
+  const visit = (current: ControlNode): void => {
+    switch (current.type) {
+      case 'expression_region':
+        for (const block of current.bypassBlocks) {
+          scaffolding.add(block);
+        }
+        return;
+      case 'switch': {
+        const header = current.expression.type === 'basic_block' ? current.expression.block : undefined;
+        for (const block of current.switchDispatchBlocks ?? []) {
+          if (block !== header) {
+            scaffolding.add(block);
+          }
+        }
+        visit(current.expression);
+        for (const switchCase of current.cases) {
+          visit(switchCase.body);
+        }
+        if (current.defaultCase) {
+          visit(current.defaultCase);
+        }
+        return;
+      }
+      case 'sequence':
+        for (const child of current.nodes) {
+          visit(child);
+        }
+        return;
+      case 'if':
+        visit(current.condition);
+        visit(current.body);
+        return;
+      case 'if_else':
+        visit(current.condition);
+        visit(current.thenBody);
+        visit(current.elseBody);
+        return;
+      case 'while':
+      case 'do_while':
+        visit(current.condition);
+        visit(current.body);
+        return;
+      case 'for':
+        if (current.init) visit(current.init);
+        visit(current.condition);
+        visit(current.body);
+        if (current.increment) visit(current.increment);
+        return;
+      case 'basic_block':
+        return;
+    }
+  };
+  visit(root);
+  for (const region of covering.values()) {
+    for (const block of region.bypassBlocks) {
+      scaffolding.add(block);
+    }
+  }
+  return scaffolding;
+}
+
+export function auditControlNodeCoverage(
+  cfg: NWScriptControlFlowGraph,
+  procedure: Procedure,
+  root: ControlNode,
+  covering: Map<NWScriptBasicBlock, NWScriptShortCircuitRegion> = indexShortCircuitRegions(cfg).covering
+): ControlNodeCoverageAudit {
+  const counts = new Map<NWScriptBasicBlock, number>();
+  collectControlNodeBlocks(root, counts);
+  const owned = new Set(counts.keys());
+  const scaffolding = collectScaffoldingBlocks(root, covering);
+  const missing: NWScriptBasicBlock[] = [];
+  const duplicate: NWScriptBasicBlock[] = [];
+
+  for (const block of procedure.blocks) {
+    if (block.isUnreachable || !blockHasSemanticInstructions(block)) {
+      continue;
+    }
+    if (scaffolding.has(block)) {
+      continue;
+    }
+    const owners = counts.get(block) ?? 0;
+    if (owners === 0) {
+      missing.push(block);
+    } else if (owners > 1) {
+      duplicate.push(block);
+    }
+  }
+
+  return { owned, scaffolding, missing, duplicate };
 }

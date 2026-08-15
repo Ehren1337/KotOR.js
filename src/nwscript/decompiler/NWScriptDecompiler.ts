@@ -162,6 +162,16 @@ export class NWScriptDecompiler {
     const controlNodeTree = this.measurePhase('structures.buildProcedure', () =>
       this.structureBuilder!.buildProcedure(functionEntryBlock)
     );
+    const coverage = this.structureBuilder!.auditLastProcedure(controlNodeTree);
+    if (
+      coverage &&
+      (coverage.missing.length > 0 || coverage.duplicate.length > 0) &&
+      nwscriptDecompilerDebugEnabled()
+    ) {
+      nwscriptDecompilerDebug(
+        `[Decompiler] ControlNode coverage gaps: missing=${coverage.missing.map(b => b.id).join(',') || 'none'} duplicate=${coverage.duplicate.map(b => b.id).join(',') || 'none'}`
+      );
+    }
     nwscriptDecompilerDebug('ControlNode tree built successfully');
     nwscriptDecompilerDebug(`[Decompiler] CFG has ${this.cfg.blocks.size} blocks`);
     nwscriptDecompilerDebug(`[Decompiler] Main function has ${mainFunction?.bodyBlocks.length || 0} body blocks`);

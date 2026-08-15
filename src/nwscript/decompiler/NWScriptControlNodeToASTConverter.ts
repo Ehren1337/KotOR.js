@@ -1,4 +1,4 @@
-import type { ControlNode, BasicBlockNode, IfNode, IfElseNode, WhileNode, DoWhileNode, ForNode, SwitchNode, SequenceNode } from "@/nwscript/decompiler/NWScriptControlStructureBuilder";
+import type { ControlNode, BasicBlockNode, IfNode, IfElseNode, WhileNode, DoWhileNode, ForNode, SwitchNode, ExpressionRegionNode } from "@/nwscript/decompiler/NWScriptControlStructureBuilder";
 import type { NWScriptControlFlowGraph } from "@/nwscript/decompiler/NWScriptControlFlowGraph";
 import type { NWScriptBasicBlock } from "@/nwscript/decompiler/NWScriptBasicBlock";
 import type { NWScriptFunction } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
@@ -32,6 +32,7 @@ import {
   buildDelayCommandThunkCalleeByActionAddress,
 } from "@/nwscript/decompiler/NWScriptStoreStateThunkSkip";
 import { getUnaryDataType, stackSlotsForByteSize, stackSlotsForDataType, toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
+import { classifyShortCircuitRegion } from "@/nwscript/decompiler/NWScriptShortCircuitRegion";
 
 type DecompJumpHint =
   | { kind: "loop"; exit: NWScriptBasicBlock | null; header: NWScriptBasicBlock | null; increment: NWScriptBasicBlock | null }
@@ -1336,7 +1337,7 @@ export class NWScriptControlNodeToASTConverter {
         break;
 
       case 'switch':
-        statements.push(this.convertSwitchNode(controlNode, functionContext));
+        this.convertSwitchWithPrelude(controlNode, functionContext, statements);
         break;
 
       case 'sequence':
@@ -1346,6 +1347,10 @@ export class NWScriptControlNodeToASTConverter {
           nwscriptDecompilerDebug(`[ControlNode] Sequence node ${i + 1}/${controlNode.nodes.length}: ${controlNode.nodes[i].type}`);
           this.convertControlNode(controlNode.nodes[i], functionContext, statements);
         }
+        break;
+
+      case 'expression_region':
+        this.convertExpressionRegion(controlNode, functionContext, statements);
         break;
     }
     } finally {
@@ -1444,6 +1449,7 @@ export class NWScriptControlNodeToASTConverter {
   /** Return a source-order block list only for a genuinely linear ControlNode region. */
   private getLinearBasicBlocks(node: ControlNode): NWScriptBasicBlock[] | null {
     if (node.type === 'basic_block') return [node.block];
+    if (node.type === 'expression_region') return [...node.evaluateBlocks];
     if (node.type !== 'sequence') return null;
     const result: NWScriptBasicBlock[] = [];
     for (const child of node.nodes) {
@@ -1455,11 +1461,47 @@ export class NWScriptControlNodeToASTConverter {
   }
 
   /**
-   * Consume the two-arm value diamond emitted for `lhs || rhs`. One arm only duplicates lhs;
-   * the other evaluates rhs, and the common join starts with LOGORII.
-   *
-   * BioWare nwnnsscomp uses `CPTOPSP; JZ join` on the true arm (a vestigial pop) rather than
-   * `JMP join`. The LOGORII block is left unconverted so the following source `if`/`while`
+   * Consume a compiler-only `&&` / `||` value region. Dummy bypass arms are never source
+   * `if`s. The logical join is left unconverted so the following condition can combine
+   * `[lhs, rhs]`.
+   */
+  private consumeShortCircuitRegion(
+    header: NWScriptBasicBlock,
+    evaluateBlocks: NWScriptBasicBlock[],
+    bypassBlocks: NWScriptBasicBlock[],
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): void {
+    for (const block of bypassBlocks) {
+      this.blockStatements.set(block, []);
+      this.emittedBasicBlocksInCurrentProcedure.add(block);
+    }
+    for (const block of evaluateBlocks) {
+      this.convertBasicBlock({ type: 'basic_block', block }, functionContext, statements);
+    }
+    this.consumedShortCircuitDiamondHeaders.add(header);
+  }
+
+  private convertExpressionRegion(
+    node: ExpressionRegionNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): void {
+    if (this.consumedShortCircuitDiamondHeaders.has(node.header)) {
+      return;
+    }
+    this.consumeShortCircuitRegion(
+      node.header,
+      node.evaluateBlocks,
+      node.bypassBlocks,
+      functionContext,
+      statements
+    );
+  }
+
+  /**
+   * Consume the two-arm value diamond emitted for `lhs || rhs` / `lhs && rhs`.
+   * The logical join is left unconverted so the following source `if`/`while`
    * can combine `[lhs, rhs]` itself.
    */
   private tryConsumeShortCircuitDiamond(
@@ -1470,66 +1512,17 @@ export class NWScriptControlNodeToASTConverter {
     if (this.consumedShortCircuitDiamondHeaders.has(header)) {
       return false;
     }
-    if (!header.conditionInstruction || header.successors.size !== 2) {
+    const region = classifyShortCircuitRegion(this.cfg, header);
+    if (!region) {
       return false;
     }
-    const conditionIndex = header.instructions.indexOf(header.conditionInstruction);
-    const duplicate = conditionIndex > 0 ? header.instructions[conditionIndex - 1] : undefined;
-    if (duplicate?.code !== OP_CPTOPSP && duplicate?.code !== OP_CPTOPBP) {
-      return false;
-    }
-    const branches = Array.from(header.successors);
-    const join = this.findShortCircuitJoin(branches[0], branches[1], OP_LOGORII);
-    if (!join) {
-      return false;
-    }
-
-    // The true arm of the compiler's OR diamond only duplicates lhs and jumps to the
-    // LOGORII join. It is mutually exclusive with the arm that evaluates rhs. Running
-    // both arms linearly leaves that duplicate on the simulated stack and, more
-    // importantly, changes the SP-relative offsets used while evaluating rhs. Ignore
-    // the bypass arm: the original lhs already on the stack is the left operand that
-    // LOGORII needs when the rhs arm is simulated.
-    const bypass = this.findShortCircuitBypass(branches[0], join) ??
-      this.findShortCircuitBypass(branches[1], join);
-    if (!bypass) {
-      return false;
-    }
-
-    const joinAddress = join.startInstruction.address;
-    const region = new Set<NWScriptBasicBlock>();
-    const queue = [...branches];
-    while (queue.length > 0) {
-      const block = queue.shift()!;
-      if (block === join || bypass.has(block) || region.has(block)) continue;
-      if (block.startInstruction.address >= joinAddress) continue;
-      region.add(block);
-      for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
-        if (
-          !this.cfg.isBackEdge(block, successor) &&
-          !bypass.has(successor) &&
-          successor !== join &&
-          !region.has(successor) &&
-          successor.startInstruction.address < joinAddress
-        ) {
-          queue.push(successor);
-        }
-      }
-    }
-    for (const block of bypass) {
-      this.blockStatements.set(block, []);
-      this.emittedBasicBlocksInCurrentProcedure.add(block);
-    }
-    // Do not convert the LOGORII join here. It is the start of the source-level
-    // `if`/`while` condition (LOGORII then JZ), or the next `||` diamond header.
-    // Leaving `[lhs, rhs]` on the stack lets that later node combine them.
-    const ordered = [...region].sort((left, right) =>
-      left.startInstruction.address - right.startInstruction.address
+    this.consumeShortCircuitRegion(
+      region.header,
+      region.evaluateBlocks,
+      region.bypassBlocks,
+      functionContext,
+      statements
     );
-    for (const block of ordered) {
-      this.convertBasicBlock({ type: 'basic_block', block }, functionContext, statements);
-    }
-    this.consumedShortCircuitDiamondHeaders.add(header);
     return true;
   }
 
@@ -1812,7 +1805,8 @@ export class NWScriptControlNodeToASTConverter {
   private convertBasicBlock(
     blockNode: BasicBlockNode,
     functionContext: NWScriptFunction | null,
-    statements: NWScriptASTNode[]
+    statements: NWScriptASTNode[],
+    throughAddress?: number
   ): void {
     const block = blockNode.block;
 
@@ -1905,6 +1899,9 @@ export class NWScriptControlNodeToASTConverter {
     
     for (let i = 0; i < block.instructions.length; i++) {
       const instruction = block.instructions[i];
+      if (throughAddress !== undefined && instruction.address > throughAddress) {
+        break;
+      }
 
       if (
         instruction.code === OP_STORE_STATE ||
@@ -2595,15 +2592,64 @@ export class NWScriptControlNodeToASTConverter {
   }
 
   /**
+   * Emit switch-header side effects (e.g. `nRandom = Random(...)`) once, then the switch.
+   */
+  private convertSwitchWithPrelude(
+    node: SwitchNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): void {
+    const expression = this.emitSwitchPrelude(node, functionContext, statements);
+    statements.push(this.convertSwitchNode(node, functionContext, expression));
+  }
+
+  private emitSwitchPrelude(
+    node: SwitchNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): NWScriptExpression {
+    const headerBlock =
+      node.expression.type === "basic_block" ? node.expression.block : undefined;
+    const producer = node.discriminantInstruction;
+    const producerBlock = producer
+      ? this.cfg.getBlockForAddress(producer.address) ?? undefined
+      : headerBlock;
+
+    if (producerBlock) {
+      this.convertBasicBlock(
+        { type: 'basic_block', block: producerBlock },
+        functionContext,
+        statements,
+        producer?.address
+      );
+    }
+
+    for (const dispatch of node.switchDispatchBlocks ?? []) {
+      if (dispatch === producerBlock || dispatch === headerBlock) {
+        continue;
+      }
+      this.blockStatements.set(dispatch, []);
+      this.emittedBasicBlocksInCurrentProcedure.add(dispatch);
+    }
+
+    const peeked = this.stackSimulator.peek()?.expression;
+    if (peeked) {
+      return peeked;
+    }
+    if (producer) {
+      return this.extractExpressionUpToInstruction(producer, functionContext);
+    }
+    return this.extractExpressionFromBlock(node.expression, functionContext);
+  }
+
+  /**
    * Convert SwitchNode to AST
    */
-  private convertSwitchNode(node: SwitchNode, functionContext: NWScriptFunction | null): NWScriptSwitchNode {
-    // Prefer merged-ladder CPTOP addr (discriminant may be in a successor block vs header-only)
-    const expression =
-      node.discriminantInstruction != null
-        ? this.extractExpressionUpToInstruction(node.discriminantInstruction, functionContext)
-        : this.extractExpressionFromBlock(node.expression, functionContext);
-
+  private convertSwitchNode(
+    node: SwitchNode,
+    functionContext: NWScriptFunction | null,
+    expression: NWScriptExpression
+  ): NWScriptSwitchNode {
     const headerBlock =
       node.expression.type === "basic_block" ? node.expression.block : undefined;
 
