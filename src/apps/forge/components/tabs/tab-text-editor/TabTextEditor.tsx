@@ -8,7 +8,7 @@ import { TabManagerProvider } from "@/apps/forge/context/TabManagerContext";
 import TabManager from "@/apps/forge/components/tabs/TabManager";
 import * as monacoEditor from "monaco-editor/esm/vs/editor/editor.api";
 import { MenuBar, MenuItem } from "@/apps/forge/components/common/MenuBar";
-import { Button } from "react-bootstrap";
+import { ForgeButton } from "@/apps/forge/components/ui";
 import { NcsInspector } from "@/apps/forge/components/tabs/tab-ncs-inspector/NcsInspector";
 import {
   getNcsInspectorDrawerOpen,
@@ -441,7 +441,7 @@ export const TabTextEditor = function(props: any){
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <MenuBar items={menuItems} />
       {tab.isNcsFile() && (
-        <Button
+        <ForgeButton
           size="sm"
           variant={inspectorOpen ? "primary" : "secondary"}
           onClick={() => {
@@ -452,7 +452,7 @@ export const TabTextEditor = function(props: any){
           style={{ position: 'absolute', top: 2, right: 6, zIndex: 4, padding: '1px 8px' }}
         >
           {inspectorOpen ? 'Close Inspector' : 'Inspect NCS'}
-        </Button>
+        </ForgeButton>
       )}
       <div style={{
         position: 'absolute',

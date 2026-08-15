@@ -1,0 +1,112 @@
+.forge-titlebar {
+  display: flex;
+  align-items: stretch;
+  height: var(--forge-titlebar-height);
+  min-height: var(--forge-titlebar-height);
+  background: var(--forge-bg);
+  border-bottom: 1px solid var(--forge-border-subtle);
+  -webkit-app-region: drag;
+  user-select: none;
+  color: var(--forge-text);
+
+  &--mac {
+    padding-left: 72px;
+  }
+
+  &__controls {
+    display: flex;
+    -webkit-app-region: no-drag;
+  }
+
+  &--mac &__controls {
+    position: absolute;
+    left: 8px;
+    top: 0;
+    height: 100%;
+  }
+
+  &__btn {
+    width: 46px;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: var(--forge-text);
+    cursor: default;
+    -webkit-app-region: no-drag;
+
+    &:hover {
+      background: var(--forge-bg-hover);
+    }
+
+    &--close:hover {
+      background: #c42b1c;
+      color: #fff;
+    }
+  }
+
+  &--mac &__btn {
+    width: 12px;
+    height: 12px;
+    margin: auto 4px;
+    border-radius: 50%;
+    background: #555;
+
+    &:hover { background: #777; }
+    &--close { background: #ff5f57; }
+    &--min { background: #febc2e; }
+    &--max { background: #28c840; }
+  }
+
+  &__title {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--forge-font-size);
+    color: var(--forge-text-muted);
+    pointer-events: none;
+  }
+}
+
+.forge-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--forge-statusbar-height);
+  min-height: var(--forge-statusbar-height);
+  padding: 0 8px;
+  background: var(--forge-bg);
+  border-top: 1px solid var(--forge-border);
+  font-size: var(--forge-font-size-sm);
+  color: var(--forge-text-muted);
+  -webkit-app-region: no-drag;
+
+  &__game {
+    color: var(--forge-accent);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  &__tab {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__idle {
+    margin-left: auto;
+  }
+}
+
+.forge-overlay-menubar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  height: var(--forge-menubar-height);
+  background: var(--forge-bg);
+  border-bottom: 1px solid var(--forge-border);
+}

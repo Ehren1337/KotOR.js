@@ -1,68 +1,122 @@
-import React, { useState } from "react";
-import { Dropdown, Nav, NavDropdown } from 'react-bootstrap';
+import React, { useEffect, useRef, useState } from "react";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
+import { MenuTopItem } from "@/apps/forge/MenuTopItem";
 
-export const MenuItem = function(props: any){
-  const item = props.item;
+const SUBMENU_CLOSE_DELAY_MS = 180;
+
+export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopItem }) {
+  const item: MenuTopItem = props.item;
   const parent = props.parent;
+  const [open, setOpen] = useState(false);
+  const [, rerender] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  const [render, rerender] = useState<boolean>(false);
-
-  const onRebuild = () => {
-    rerender(!render);
-    if(parent) parent.rebuild();
+  const cancelClose = () => {
+    if (closeTimer.current) {
+      clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
   };
 
-  useEffectOnce( () => { //constructor
-    item.addEventListener('onRebuild', onRebuild);
-    return () => { //deconstructor
-      item.removeEventListener('onRebuild', onRebuild);
-    }
+  useEffectOnce(() => {
+    const onRebuild = () => rerender((v) => !v);
+    item.addEventListener("onRebuild", onRebuild);
+    return () => item.removeEventListener("onRebuild", onRebuild);
   });
 
-  const onClick = (e: React.MouseEvent<HTMLElement, MouseEvent>) => {
-    if(typeof item.onClick === 'function'){
-      item.onClick(e, item);
-    }
-  }
+  useEffect(() => {
+    if (!open || parent) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open, parent]);
 
-  const renderItemName = () => {
-    return (
-      <span className="dropdown-item-name-wrapper">
-        <span className="dropdown-item-name">{item.checked ? "✓ " : ""}{item.name}</span>
-      </span>
-    );
+  const onClickRoot = () => {
+    if (typeof item.onClick === "function" && !item.items.length) {
+      item.onClick(item);
+      return;
+    }
+    setOpen((v) => !v);
   };
 
-  if(item.type === 'separator' || item.type === 'sep'){
+  const onClickLeaf = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (typeof item.onClick === "function") {
+      item.onClick(item);
+    }
+  };
+
+  if (item.type === "separator" || (item.type as string) === "sep") {
+    return <div className="forge-menu__separator" />;
+  }
+
+  if (item.type === "title") {
+    return <div className="forge-menu__header">{item.name}</div>;
+  }
+
+  const hasChildren = item.items.length > 0;
+
+  if (!parent) {
     return (
-      <Dropdown.Divider></Dropdown.Divider>
-    );
-  }else if(item.type === 'title'){
-    return (
-      <Dropdown.Header className="forge-menu-title">{item.name}</Dropdown.Header>
-    );
-  }else if(item.items.length){
-    return (
-      <NavDropdown
-        title={item.name}
-        drop={parent ? 'end' : 'down'}
-        className={parent ? 'forge-menu-submenu' : 'forge-menu-root-item'}
-      >
-        {item.items.map((child: any, i: any) => 
-          (
-            <MenuItem key={(`menu-item-${child.uuid}`)} item={child} parent={item}></MenuItem>
-          )
-        )}
-      </NavDropdown>
-    );
-  }else if(parent){
-    return (
-      <NavDropdown.Item onClick={onClick}>{renderItemName()}</NavDropdown.Item>
-    );
-  }else{
-    return (
-      <Nav.Link onClick={onClick}>{renderItemName()}</Nav.Link>
+      <div className="forge-menubar__item" ref={rootRef}>
+        <button
+          type="button"
+          className={`forge-menubar__label ${open ? "is-open" : ""}`}
+          onClick={onClickRoot}
+        >
+          {item.checked ? "✓ " : ""}{item.name}
+        </button>
+        {open && hasChildren ? (
+          <div className="forge-menu">
+            {item.items.map((child) => (
+              <MenuItem key={`menu-item-${child.uuid}`} item={child} parent={item} />
+            ))}
+          </div>
+        ) : null}
+      </div>
     );
   }
-}
+
+  if (hasChildren) {
+    return (
+      <div
+        className={`forge-menu__item ${open ? "is-open" : ""}`}
+        onMouseEnter={() => {
+          cancelClose();
+          setOpen(true);
+        }}
+        onMouseLeave={() => {
+          cancelClose();
+          closeTimer.current = setTimeout(() => setOpen(false), SUBMENU_CLOSE_DELAY_MS);
+        }}
+      >
+        <span>{item.checked ? "✓ " : ""}{item.name}</span>
+        <span className="forge-menu__arrow">▶</span>
+        {open ? (
+          <div
+            className="forge-menu forge-menu--flyout"
+            onMouseEnter={cancelClose}
+            onMouseLeave={() => {
+              cancelClose();
+              closeTimer.current = setTimeout(() => setOpen(false), SUBMENU_CLOSE_DELAY_MS);
+            }}
+          >
+            {item.items.map((child) => (
+              <MenuItem key={`menu-item-${child.uuid}`} item={child} parent={item} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <button type="button" className="forge-menu__item" onClick={onClickLeaf}>
+      {item.checked ? <span className="forge-menu__check">✓</span> : null}
+      <span className="dropdown-item-name">{item.name}</span>
+    </button>
+  );
+};

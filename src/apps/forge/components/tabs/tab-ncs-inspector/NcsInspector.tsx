@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import path from "path";
 import * as fs from "fs";
-import { Button, Dropdown } from "react-bootstrap";
+import { ForgeButton, ForgeDropdown } from "@/apps/forge/components/ui";
 import { FileTypeManager } from "@/apps/forge/FileTypeManager";
 import { ForgeFileSystem } from "@/apps/forge/ForgeFileSystem";
 import type { EditorFile } from "@/apps/forge/EditorFile";
@@ -290,14 +290,14 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
       <div className="ncs-inspector__toolbar">
         <div className="ncs-inspector__modes">
           {(["split", "assembly", "bytecode"] as NcsInspectorLayoutMode[]).map((mode) => (
-            <Button
+            <ForgeButton
               key={mode}
               size="sm"
               variant={layoutMode === mode ? "primary" : "secondary"}
               onClick={() => changeLayout(mode)}
             >
               {mode === "split" ? "Split" : mode === "assembly" ? "Asm" : "Bytes"}
-            </Button>
+            </ForgeButton>
           ))}
         </div>
         {searchOpen || search ? (
@@ -312,7 +312,7 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
             }}
           />
         ) : (
-          <Button
+          <ForgeButton
             size="sm"
             variant="secondary"
             title="Search instructions (/)"
@@ -322,9 +322,9 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
             }}
           >
             Search
-          </Button>
+          </ForgeButton>
         )}
-        <Button
+        <ForgeButton
           size="sm"
           variant={showFunctions ? "primary" : "secondary"}
           onClick={() => {
@@ -334,8 +334,8 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
           }}
         >
           Functions
-        </Button>
-        <Button
+        </ForgeButton>
+        <ForgeButton
           size="sm"
           variant={showDetails ? "primary" : "secondary"}
           onClick={() => {
@@ -345,23 +345,23 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
           }}
         >
           Details
-        </Button>
-        <Dropdown align="end">
-          <Dropdown.Toggle size="sm" variant="secondary">More</Dropdown.Toggle>
-          <Dropdown.Menu>
-            <Dropdown.Item
+        </ForgeButton>
+        <ForgeDropdown align="end">
+          <ForgeDropdown.Toggle size="sm" variant="secondary">More</ForgeDropdown.Toggle>
+          <ForgeDropdown.Menu>
+            <ForgeDropdown.Item
               disabled={!inspection.instructions.length}
               onClick={() => void copyText(disassembly)}
             >
               Copy assembly
-            </Dropdown.Item>
-            <Dropdown.Item
+            </ForgeDropdown.Item>
+            <ForgeDropdown.Item
               disabled={!inspection.instructions.length}
               onClick={() => void saveTextFile(`${baseName}.ncs.txt`, disassembly)}
             >
               Save disassembly…
-            </Dropdown.Item>
-            <Dropdown.Item
+            </ForgeDropdown.Item>
+            <ForgeDropdown.Item
               onClick={async () => {
                 const picked = await pickNcsFile();
                 if (!picked) return;
@@ -373,9 +373,9 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
               }}
             >
               Compare NCS…
-            </Dropdown.Item>
-            <Dropdown.Divider />
-            <Dropdown.Item
+            </ForgeDropdown.Item>
+            <ForgeDropdown.Divider />
+            <ForgeDropdown.Item
               onClick={() => {
                 FileTypeManager.openHexEditor({
                   buffer: bytes,
@@ -392,11 +392,11 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
               }}
             >
               Open in hex editor
-            </Dropdown.Item>
-          </Dropdown.Menu>
-        </Dropdown>
+            </ForgeDropdown.Item>
+          </ForgeDropdown.Menu>
+        </ForgeDropdown>
         {onClose && (
-          <Button
+          <ForgeButton
             size="sm"
             variant="secondary"
             className="ncs-inspector__close"
@@ -405,7 +405,7 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
             onClick={onClose}
           >
             ×
-          </Button>
+          </ForgeButton>
         )}
       </div>
 
@@ -522,14 +522,14 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
           <div className="ncs-inspector__details-title">
             {selected ? `${selected.mnemonic} @ ${padHex(selected.fileOffset, 8)}` : "Details"}
             {onShowInNss && (
-              <Button
+              <ForgeButton
                 size="sm"
                 variant="link"
                 disabled={!selected || !nssLineMap}
                 onClick={showInNss}
               >
                 Reveal in NSS
-              </Button>
+              </ForgeButton>
             )}
           </div>
           {!selected && (
@@ -574,7 +574,7 @@ export const NcsInspector: React.FC<NcsInspectorProps> = ({
         {compareRows && (
           <div className="ncs-inspector__compare">
             <div className="ncs-inspector__details-title">Compare with {compareName}</div>
-            <Button size="sm" variant="secondary" onClick={() => setCompareRows(null)}>Close compare</Button>
+            <ForgeButton size="sm" variant="secondary" onClick={() => setCompareRows(null)}>Close compare</ForgeButton>
             {compareRows.filter((row) => row.kind !== "equal").map((row, index) => (
               <button
                 key={index}

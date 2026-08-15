@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Button, Modal } from "react-bootstrap";
+import { ForgeButton, ForgeDialog } from "@/apps/forge/components/ui";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 
 import * as KotOR from "@/apps/forge/KotOR";
@@ -41,31 +41,31 @@ export const ModalChangeGame = function(props: any){
   });
 
   return (
-    <Modal 
+    <ForgeDialog 
       show={show} 
       onHide={handleClose} 
       backdrop="static" 
       keyboard={false}
     >
-      <Modal.Header closeButton>
-        <Modal.Title>Switch Game?</Modal.Title>
-      </Modal.Header>
+      <ForgeDialog.Header closeButton>
+        <ForgeDialog.Title>Switch Game?</ForgeDialog.Title>
+      </ForgeDialog.Header>
 
-      <Modal.Body>
+      <ForgeDialog.Body>
         <p>Choose which game you would like to switch to.</p>
-      </Modal.Body>
+      </ForgeDialog.Body>
 
-      <Modal.Footer>
+      <ForgeDialog.Footer>
         {
           profiles.map( (profile: any) => {
             return (
-              <Button key={profile.key} variant="primary" onClick={(e: any) => chooseProfile(e, profile)}>{profile.name}</Button>
+              <ForgeButton key={profile.key} variant="primary" onClick={(e: any) => chooseProfile(e, profile)}>{profile.name}</ForgeButton>
             )
           })
         }
-        <Button variant="secondary" onClick={handleClose}>Close</Button>
-      </Modal.Footer>
-    </Modal>
+        <ForgeButton onClick={handleClose}>Close</ForgeButton>
+      </ForgeDialog.Footer>
+    </ForgeDialog>
   )
 };
 

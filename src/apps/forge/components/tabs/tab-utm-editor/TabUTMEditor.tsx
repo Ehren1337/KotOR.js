@@ -186,7 +186,7 @@ export const TabUTMEditor = function(props: BaseTabProps){
                     <strong>Item List</strong>
                     <button 
                       onClick={onAddItem} 
-                      className="btn btn-sm btn-primary"
+                      className="forge-btn forge-btn--sm forge-btn--primary"
                     >
                       <i className="fa-solid fa-plus"></i> Add Item
                     </button>
@@ -220,7 +220,7 @@ export const TabUTMEditor = function(props: BaseTabProps){
                                 />
                                 <button 
                                   onClick={() => onOpenItemBrowser(index)}
-                                  className="btn btn-sm btn-secondary"
+                                  className="forge-btn forge-btn--sm"
                                   title="Browse Items"
                                 >
                                   <i className="fa-solid fa-folder-open"></i>
@@ -250,7 +250,7 @@ export const TabUTMEditor = function(props: BaseTabProps){
                             <td>
                               <button 
                                 onClick={() => onRemoveItem(index)}
-                                className="btn btn-sm btn-danger"
+                                className="forge-btn forge-btn--sm forge-btn--danger"
                                 title="Remove Item"
                               >
                                 <i className="fa-solid fa-trash"></i>

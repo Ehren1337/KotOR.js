@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useMemo, memo } from "react";
-import { Container, Nav, Navbar } from 'react-bootstrap';
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { MenuItem } from "@/apps/forge/components/MenuItem";
 import { MenuTopState } from "@/apps/forge/states/MenuTopState";
@@ -67,18 +66,8 @@ export const MenuTop = memo(function MenuTop(props: MenuTopProps = {}) {
   ), [items]);
 
   return (
-    <Navbar className={`top-menu ${className}`.trim()} expand="lg">
-      <div className="menu-accent">
-        <span className="inner" />
-      </div>
-      <Container fluid>
-        <Navbar.Toggle aria-controls="basic-navbar-nav" />
-        <Navbar.Collapse id="basic-navbar-nav" className="flex-grow-1">
-          <Nav className="me-auto">
-            {menuItems}
-          </Nav>
-        </Navbar.Collapse>
-      </Container>
-    </Navbar>
+    <nav className={`forge-menubar ${className}`.trim()} role="menubar">
+      {menuItems}
+    </nav>
   );
 });

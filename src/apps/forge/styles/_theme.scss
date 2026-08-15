@@ -1,0 +1,59 @@
+// =============================================================================
+// FORGE THEME — CSS custom properties (native desktop chrome)
+// =============================================================================
+
+:root,
+html.KOTOR {
+  color-scheme: dark;
+  --forge-bg: #1c1c1c;
+  --forge-bg-elevated: #252525;
+  --forge-bg-panel: #2d2d2d;
+  --forge-bg-input: #222222;
+  --forge-bg-hover: #333333;
+  --forge-bg-active: #3a3a3a;
+  --forge-bg-overlay: rgba(0, 0, 0, 0.55);
+
+  --forge-text: #d4d4d4;
+  --forge-text-muted: #9a9a9a;
+  --forge-text-bright: #f2f2f2;
+  --forge-text-disabled: #6a6a6a;
+
+  --forge-border: #3a3a3a;
+  --forge-border-subtle: #2a2a2a;
+
+  --forge-accent: #3a8fd4;
+  --forge-accent-hover: #4ea3e8;
+  --forge-accent-muted: rgba(58, 143, 212, 0.22);
+
+  --forge-danger: #c75050;
+  --forge-danger-hover: #d96a6a;
+  --forge-success: #3d9a55;
+
+  --forge-font: system-ui, "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  --forge-font-mono: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  --forge-font-size: 12.5px;
+  --forge-font-size-sm: 11px;
+
+  --forge-radius: 2px;
+  --forge-border-width: 1px;
+
+  --forge-titlebar-height: 28px;
+  --forge-menubar-height: 22px;
+  --forge-tab-height: 28px;
+  --forge-statusbar-height: 22px;
+  --forge-splitter: 4px;
+
+  --forge-z-dropdown: 4000;
+  --forge-z-floating: 5000;
+  --forge-z-modal: 9999;
+  --forge-z-notification: 99999999;
+
+  --forge-focus-ring: 0 0 0 1px var(--forge-accent);
+  --forge-shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.45);
+}
+
+html.TSL {
+  --forge-accent: rgb(26, 178, 140);
+  --forge-accent-hover: rgb(45, 200, 160);
+  --forge-accent-muted: rgba(26, 178, 140, 0.22);
+}

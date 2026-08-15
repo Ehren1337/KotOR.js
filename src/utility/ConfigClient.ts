@@ -207,6 +207,14 @@ const defaults: any = {
           visible: false
         },
       }
+    },
+    NcsInspector: {
+      layoutMode: 'assembly',
+      showFunctions: false,
+      showDetails: false,
+      drawerOpen: false,
+      drawerWidth: 440,
+      experienceVersion: 2,
     }
   },
   Panes: {

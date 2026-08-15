@@ -104,7 +104,7 @@ export const TabERFEditor = function(props: BaseTabProps) {
   return (
     <>
       <div className="file-browser">
-        <div className="d-flex h-100">
+        <div className="flex-horizontal" style={{height: '100%'}}>
           <ForgeTreeView style={{flex: 0.5, height: '100%', overflow: 'auto'}}>
             {
               entries.map( (node: FileBrowserNode) => {
@@ -116,7 +116,7 @@ export const TabERFEditor = function(props: BaseTabProps) {
           </ForgeTreeView>
           <div style={{flex: 0.5, height: '100%'}}>
             {selectedEntry && (
-              <div className="d-flex flex-column h-100 text-center align-items-center justify-content-center text-uppercase">
+              <div className="flex-vertical" style={{height: '100%', alignItems: 'center', justifyContent: 'center', textAlign: 'center', textTransform: 'uppercase'}}>
                 <span><i className="fas fa-file-alt"></i></span>
                 <span className="text-primary font-weight-bold">{selectedFilename}</span>
                 <span className="text-secondary">{selectedFiletype}</span>

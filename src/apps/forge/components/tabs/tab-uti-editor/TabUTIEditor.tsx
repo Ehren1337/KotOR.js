@@ -141,7 +141,7 @@ export const TabUTIEditor = function(props: BaseTabProps){
         <input type="number" min={0} max={255} value={property.param1Value} onChange={(e) => onPropertyFieldChange(index, 'param1Value', clampByte(parseInt(e.target.value) || 0))} />
       </td>
       <td>
-        <button className="btn btn-sm btn-danger" onClick={() => removeProperty(index)}>
+        <button className="forge-btn forge-btn--sm forge-btn--danger" onClick={() => removeProperty(index)}>
           <i className="fa-solid fa-trash"></i>
         </button>
       </td>
@@ -234,7 +234,7 @@ export const TabUTIEditor = function(props: BaseTabProps){
       content: (
         <>
           <div style={{marginBottom: '10px'}}>
-            <button className="btn btn-sm btn-primary" onClick={addProperty}>
+            <button className="forge-btn forge-btn--sm forge-btn--primary" onClick={addProperty}>
               <i className="fa-solid fa-plus"></i> Add Property
             </button>
           </div>

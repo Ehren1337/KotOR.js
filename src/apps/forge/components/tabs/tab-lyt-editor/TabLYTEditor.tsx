@@ -8,7 +8,8 @@ import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerCon
 import { LayoutContainer } from "@/apps/forge/components/LayoutContainer/LayoutContainer";
 import { UI3DRendererView, MenuItem } from "@/apps/forge/components/UI3DRendererView";
 import { CameraView } from "@/apps/forge/UI3DRenderer";
-import { Form } from "react-bootstrap";
+
+import { ForgeInput } from "@/apps/forge/components/ui";
 import { SectionContainer } from "@/apps/forge/components/SectionContainer";
 import * as monacoEditor from "monaco-editor/esm/vs/editor/editor.api";
 
@@ -252,7 +253,7 @@ const LYTSidebarComponent = function (props: { tab: TabLYTEditorState }) {
           <div style={{ padding: '4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
               <span style={{ width: '14px', color: '#f44' }}>X</span>
-              <Form.Control
+              <ForgeInput
                 type="number"
                 size="sm"
                 step="0.1"
@@ -263,7 +264,7 @@ const LYTSidebarComponent = function (props: { tab: TabLYTEditorState }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '3px' }}>
               <span style={{ width: '14px', color: '#4f4' }}>Y</span>
-              <Form.Control
+              <ForgeInput
                 type="number"
                 size="sm"
                 step="0.1"
@@ -274,7 +275,7 @@ const LYTSidebarComponent = function (props: { tab: TabLYTEditorState }) {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <span style={{ width: '14px', color: '#48f' }}>Z</span>
-              <Form.Control
+              <ForgeInput
                 type="number"
                 size="sm"
                 step="0.1"

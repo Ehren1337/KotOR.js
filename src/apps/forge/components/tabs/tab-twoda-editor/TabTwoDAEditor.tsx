@@ -3,7 +3,7 @@ import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps"
 
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabTwoDAEditorState } from "@/apps/forge/states/tabs";
-import { ProgressBar } from "react-bootstrap";
+import { ForgeProgress } from "@/apps/forge/components/ui";
 import { TwoDAEditorRow } from "@/apps/forge/components/TwoDAEditorRow";
 import { TwoDAEditorColumnHeader } from "@/apps/forge/components/TwoDAEditorColumnHeader";
 import { MenuBar, MenuItem } from "@/apps/forge/components/common/MenuBar";
@@ -183,7 +183,7 @@ export const TabTwoDAEditor = function(props: BaseTabProps){
         height: '100%'
       }}>
         <div>
-          <ProgressBar striped animated={true} now={100} label={`Loading...`} style={{
+          <ForgeProgress striped animated={true} value={100} label={`Loading...`} style={{
             minWidth: '300px',
             minHeight: '25px',
           }}/>

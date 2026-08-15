@@ -75,12 +75,12 @@ export const UI3DRendererView = function(props: UI3DRendererViewProps){
         tabIndex={1} 
         style={{ 
           position: 'absolute',
-          top: props.showMenuBar ? '24px' : 0,
+          top: props.showMenuBar ? '22px' : 0,
           left: 0,
           right: 0,
           bottom: 0,
           width: '100%',
-          height: 'calc(100% - ' + (props.showMenuBar ? '24px' : '0') + ')',
+          height: 'calc(100% - ' + (props.showMenuBar ? '22px' : '0') + ')',
         }} 
       />
       {props.children}

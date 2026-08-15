@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { BaseModalProps } from "@/apps/forge/interfaces/modal/BaseModalProps";
-import { Button, Modal } from "react-bootstrap";
+import { ForgeButton, ForgeDialog } from "@/apps/forge/components/ui";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { ModalItemBrowserState } from "@/apps/forge/states/modal/ModalItemBrowserState";
 import { LazyTextureCanvas } from "@/apps/forge/components/LazyTextureCanvas/LazyTextureCanvas";
@@ -81,7 +81,7 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
   };
 
   return (
-    <Modal
+    <ForgeDialog
       show={show}
       onHide={handleHide}
       backdrop="static"
@@ -89,15 +89,15 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
       size="lg"
       className="modal-item-browser"
     >
-      <Modal.Header closeButton>
-        <Modal.Title>{modal.title}</Modal.Title>
-      </Modal.Header>
+      <ForgeDialog.Header closeButton>
+        <ForgeDialog.Title>{modal.title}</ForgeDialog.Title>
+      </ForgeDialog.Header>
 
-      <Modal.Body>
+      <ForgeDialog.Body>
         <div className="item-browser-search">
           <input
             type="text"
-            className="form-control"
+            className="forge-input"
             placeholder="Search items..."
             value={searchQuery}
             onChange={handleSearchChange}
@@ -139,14 +139,14 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
             )}
           </div>
         )}
-      </Modal.Body>
+      </ForgeDialog.Body>
 
-      <Modal.Footer>
-        <Button variant="secondary" onClick={handleClose}>
+      <ForgeDialog.Footer>
+        <ForgeButton onClick={handleClose}>
           Close
-        </Button>
-      </Modal.Footer>
-    </Modal>
+        </ForgeButton>
+      </ForgeDialog.Footer>
+    </ForgeDialog>
   );
 };
 

@@ -52,7 +52,7 @@ export const TabButton = function(props: TabButtonProps) {
 
   return (
     <li
-      className={`btn btn-tab ${tab.getTabManager()?.currentTab == tab ? `active` : ''} ${props.dragStateClassName || ''}`}
+      className={`forge-tab ${tab.getTabManager()?.currentTab == tab ? `active` : ''} ${props.dragStateClassName || ''}`}
       onClick={onTabClick}
       onContextMenu={(e) => props.onContextMenu?.(e, tab, index)}
       draggable

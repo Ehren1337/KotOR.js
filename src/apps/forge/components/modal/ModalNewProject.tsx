@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BaseModalProps } from "@/apps/forge/interfaces/modal/BaseModalProps";
-import { Button, FormControl, FormSelect, InputGroup, Modal } from "react-bootstrap";
+import { ForgeButton, ForgeInput, ForgeSelect, ForgeInputGroup, ForgeDialog } from "@/apps/forge/components/ui";
 import * as KotOR from "@/apps/forge/KotOR";
 import { ProjectType } from "@/apps/forge/enum/ProjectType";
 import { ForgeFileSystem, ForgeFileSystemResponseType } from "@/apps/forge/ForgeFileSystem";
@@ -180,69 +180,69 @@ export const ModalNewProject = (props: BaseModalProps) => {
   };
 
   return (
-    <Modal 
+    <ForgeDialog 
       show={show} 
       onHide={handleHide} 
       backdrop="static" 
       keyboard={false}
     >
-      <Modal.Header closeButton>
-        <Modal.Title>{modal.title}</Modal.Title>
-      </Modal.Header>
+      <ForgeDialog.Header closeButton>
+        <ForgeDialog.Title>{modal.title}</ForgeDialog.Title>
+      </ForgeDialog.Header>
 
-      <Modal.Body>
+      <ForgeDialog.Body>
         <div>
           <h3>Project Details:</h3>
 
-          <InputGroup>
-            <InputGroup.Text>Name</InputGroup.Text>
-            <FormControl type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
-          </InputGroup>
+          <ForgeInputGroup>
+            <ForgeInputGroup.Text>Name</ForgeInputGroup.Text>
+            <ForgeInput type="text" value={projectName} onChange={(e) => setProjectName(e.target.value)} />
+          </ForgeInputGroup>
 
-          <InputGroup>
-            <InputGroup.Text>Directory</InputGroup.Text>
-            <FormControl type="text" value={projectDirectory?.name} onChange={(e) => setProjectDirectory({ path: e.target.value })} />
-            <Button variant="primary" onClick={handleSelectProjectDirectory}>Locate</Button>
-          </InputGroup>
+          <ForgeInputGroup>
+            <ForgeInputGroup.Text>Directory</ForgeInputGroup.Text>
+            <ForgeInput type="text" value={projectDirectory?.name} onChange={(e) => setProjectDirectory({ path: e.target.value })} />
+            <ForgeButton variant="primary" onClick={handleSelectProjectDirectory}>Locate</ForgeButton>
+          </ForgeInputGroup>
 
-          <InputGroup>
-            <InputGroup.Text>Type</InputGroup.Text>
-            <FormSelect value={projectType} onChange={onProjectTypeChange}>
+          <ForgeInputGroup>
+            <ForgeInputGroup.Text>Type</ForgeInputGroup.Text>
+            <ForgeSelect value={projectType} onChange={onProjectTypeChange}>
               <option value={ProjectType.MODULE}>Module</option>
               <option value={ProjectType.OTHER}>Generic</option>
-            </FormSelect>
-          </InputGroup>
+            </ForgeSelect>
+          </ForgeInputGroup>
         </div>
 
         {projectType === ProjectType.MODULE && (
           <div>
             <hr />
             <h3>Module Details:</h3>
-            <InputGroup>
-              <InputGroup.Text>Module Name</InputGroup.Text>
-              <FormControl type="text" value={moduleName} placeholder={DEFAULT_MODULE_NAME} onChange={(e) => setModuleName(e.target.value)} />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Area Name</InputGroup.Text>
-              <FormControl type="text" value={areaName} placeholder={DEFAULT_AREA_NAME} onChange={(e) => setAreaName(e.target.value)} />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Template Module</InputGroup.Text>
-              <FormSelect className="game-modules" value={selectedGameModule as any} onChange={onModuleTemplateChange}>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Module Name</ForgeInputGroup.Text>
+              <ForgeInput type="text" value={moduleName} placeholder={DEFAULT_MODULE_NAME} onChange={(e) => setModuleName(e.target.value)} />
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Area Name</ForgeInputGroup.Text>
+              <ForgeInput type="text" value={areaName} placeholder={DEFAULT_AREA_NAME} onChange={(e) => setAreaName(e.target.value)} />
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Template Module</ForgeInputGroup.Text>
+              <ForgeSelect className="game-modules" value={selectedGameModule as any} onChange={onModuleTemplateChange}>
                 <option value="-1">None</option>
                 {gameModules.map((module, index) => (
                   <option key={module.moduleName} value={index as any}>{module.moduleName} - {module.areaName}</option>
                 ))}
-              </FormSelect>
-            </InputGroup>
+              </ForgeSelect>
+            </ForgeInputGroup>
           </div>
         )}
-      </Modal.Body>
+      </ForgeDialog.Body>
 
-      <Modal.Footer>
-        <Button variant="secondary" onClick={handleClose}>Close</Button>
-        <Button variant="primary" onClick={handleCreateProject}>Create Project</Button>
-      </Modal.Footer>
-    </Modal>
+      <ForgeDialog.Footer>
+        <ForgeButton variant="secondary" onClick={handleClose}>Close</ForgeButton>
+        <ForgeButton variant="primary" onClick={handleCreateProject}>Create Project</ForgeButton>
+      </ForgeDialog.Footer>
+    </ForgeDialog>
   );
 };

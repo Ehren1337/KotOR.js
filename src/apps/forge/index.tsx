@@ -3,7 +3,6 @@ import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js';
 import { TXILanguageService } from "@/apps/forge/states/TXILanguageService";
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import 'bootstrap';
 import "@/apps/forge/app.scss";
 import { AppProvider, useApp } from "@/apps/forge/context/AppContext";
 import * as KotOR from "@/apps/forge/KotOR";
@@ -64,6 +63,7 @@ const loadReactApplication = () => {
     profileKey,
   }));
 
+  document.documentElement.classList.add(KotOR.ApplicationProfile.GameKey);
   document.body.classList.add(KotOR.ApplicationProfile.GameKey);
   loadReactApplication();
 })();

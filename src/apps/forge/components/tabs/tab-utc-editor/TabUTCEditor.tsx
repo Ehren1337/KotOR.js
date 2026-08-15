@@ -559,7 +559,7 @@ export const TabUTCEditor = function(props: BaseTabProps){
 
           <fieldset>
             <legend>Portrait</legend>
-            <div className="d-flex">
+            <div className="flex-horizontal">
               <div className="flex-grow-1">
                 <TextureCanvas texture={portrait.baseresref || ''} width={64} height={64} />
               </div>

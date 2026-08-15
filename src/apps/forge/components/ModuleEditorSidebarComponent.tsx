@@ -52,7 +52,7 @@ export const ModuleEditorSidebarComponent = function(props: any){
       <div className="tab-host">
         <div className="tabs">
           <ul className="tabs-menu tabs-flex-wrap">
-            <li className={`btn btn-tab ${selectedTab == 'object-properties' ? 'active' : ''}`}><a onClick={ () => setSelectedTab('object-properties') }>Properties</a></li>
+            <li className={`forge-tab ${selectedTab == 'object-properties' ? 'active' : ''}`}><a onClick={ () => setSelectedTab('object-properties') }>Properties</a></li>
           </ul>
         </div>
         <div className="tab-container">

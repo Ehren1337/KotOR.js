@@ -3,7 +3,7 @@ import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabHexEditorState } from "@/apps/forge/states/tabs/tab-hex-editor/TabHexEditorState";
 import { MenuBar, MenuItem } from "@/apps/forge/components/common/MenuBar";
-import { Button, Form, Modal } from "react-bootstrap";
+import { ForgeButton, ForgeDialog, ForgeInput } from "@/apps/forge/components/ui";
 import {
   HEX_BYTES_PER_ROW,
   asciiChar,
@@ -376,14 +376,14 @@ export const TabHexEditor = function (props: BaseTabProps) {
       : `${byteLength.toLocaleString()} byte${byteLength === 1 ? "" : "s"}${selectionLabel ? ` · ${selectionLabel}` : ""}`;
 
   return (
-    <div className="tab-hex-editor h-100 overflow-hidden">
+    <div className="tab-hex-editor" style={{height: '100%', overflow: 'hidden'}}>
       <MenuBar items={menuItems} />
 
       <div className="tab-hex-editor__toolbar">
         <span className="tab-hex-editor__status">{statusText}</span>
-        <Button size="sm" variant="outline-secondary" disabled={!byteLength} onClick={() => setShowGoTo(true)}>
+        <ForgeButton size="sm" variant="outline-secondary" disabled={!byteLength} onClick={() => setShowGoTo(true)}>
           Go to offset…
-        </Button>
+        </ForgeButton>
       </div>
 
       <div
@@ -400,13 +400,13 @@ export const TabHexEditor = function (props: BaseTabProps) {
         )}
       </div>
 
-      <Modal show={showGoTo} onHide={() => setShowGoTo(false)} centered size="sm">
-        <Modal.Header closeButton>
-          <Modal.Title>Go to offset</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form.Label className="small text-muted">Decimal, hex (0x…), or bare hex</Form.Label>
-          <Form.Control
+      <ForgeDialog show={showGoTo} onHide={() => setShowGoTo(false)} size="sm">
+        <ForgeDialog.Header closeButton>
+          <ForgeDialog.Title>Go to offset</ForgeDialog.Title>
+        </ForgeDialog.Header>
+        <ForgeDialog.Body>
+          <label className="small text-muted">Decimal, hex (0x…), or bare hex</label>
+          <ForgeInput
             type="text"
             value={goToInput}
             onChange={(e) => setGoToInput(e.target.value)}
@@ -419,16 +419,16 @@ export const TabHexEditor = function (props: BaseTabProps) {
             autoFocus
             placeholder="e.g. 4096 or 0x1000"
           />
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={() => setShowGoTo(false)}>
+        </ForgeDialog.Body>
+        <ForgeDialog.Footer>
+          <ForgeButton variant="secondary" onClick={() => setShowGoTo(false)}>
             Cancel
-          </Button>
-          <Button variant="primary" onClick={applyGoTo} disabled={!byteLength}>
+          </ForgeButton>
+          <ForgeButton variant="primary" onClick={applyGoTo} disabled={!byteLength}>
             Go
-          </Button>
-        </Modal.Footer>
-      </Modal>
+          </ForgeButton>
+        </ForgeDialog.Footer>
+      </ForgeDialog>
     </div>
   );
 };

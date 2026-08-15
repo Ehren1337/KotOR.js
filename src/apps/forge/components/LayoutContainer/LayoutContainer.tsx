@@ -53,9 +53,9 @@ export interface LayoutContainerProps {
 
 // Constants
 const DEFAULT_PANE_SIZE = 250;
-const BAR_OPEN_SIZE = 8;
-const BAR_CLOSED_SIZE = 14;
-const MIN_PANE_SIZE = 8;
+const BAR_OPEN_SIZE = 4;
+const BAR_CLOSED_SIZE = 4;
+const MIN_PANE_SIZE = 4;
 
 export const LayoutContainer = React.memo<LayoutContainerProps>(function LayoutContainer(props) {
   // Refs using a more organized approach

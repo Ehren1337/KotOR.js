@@ -29,6 +29,7 @@ div#editor-content {
   border-left: $border-width solid $border-primary;
 }
 
-.container {
+.gff-properties,
+#gffProperties {
   border-right: $border-width solid $border-secondary;
 }

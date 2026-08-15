@@ -4,7 +4,7 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { FileTypeManager } from "@/apps/forge/FileTypeManager";
 import { EditorFile } from "@/apps/forge/EditorFile";
-import { Form, ProgressBar } from "react-bootstrap";
+import { ForgeProgress, ForgeInput } from "@/apps/forge/components/ui";
 import { FileBrowserNode } from "@/apps/forge/FileBrowserNode";
 import { ForgeTreeView } from "@/apps/forge/components/treeview/ForgeTreeView";
 import { ResourceListNode } from "@/apps/forge/components/treeview/ResourceListNode";
@@ -339,20 +339,20 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
       left: '0px',
       right: '0px',
     }}>
-      <Form className="d-flex align-items-start" style={{
+      <div className="flex-horizontal" style={{
         padding: '5px 0',
       }}>
         <span style={{padding: '5px'}}>
           <i className="fa-solid fa-magnifying-glass"></i>
         </span>
-        <Form.Control
+        <ForgeInput
           type="search"
           placeholder="Search"
-          className="me-2"
+          className=""
           aria-label="Search"
           onChange={onSearchInput}
         />
-      </Form>
+      </div>
       
       <div style={{
         display: `${!!loading ? 'block' : 'none'}`, 
@@ -361,7 +361,7 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
         height: '100px',
       }}>
         <div style={{}}>
-          <ProgressBar striped animated={true} now={100} label={`Searching...`} style={{
+          <ForgeProgress striped animated={true} value={100} label={`Searching...`} style={{
             minWidth: '100%',
             minHeight: '25px',
           }}/>
@@ -378,7 +378,7 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
         {resourceList.length > visibleItems.length && (
           <div style={{ padding: '10px', textAlign: 'center' }}>
             <button 
-              className="btn btn-sm btn-outline-primary"
+              className="forge-btn forge-btn--sm"
               onClick={loadMoreItems}
             >
               Load More ({resourceList.length - visibleItems.length} remaining)

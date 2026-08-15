@@ -4,6 +4,8 @@ import * as nodePath from "path";
 import TabManager from "@/apps/forge/components/tabs/TabManager";
 import { TabManagerProvider } from "@/apps/forge/context/TabManagerContext";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
+import { ForgeTitlebar } from "@/apps/forge/components/shell/ForgeTitlebar";
+import { ForgeStatusBar } from "@/apps/forge/components/shell/ForgeStatusBar";
 import { MenuTop } from "@/apps/forge/components/MenuTop";
 import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerContext";
 import { LayoutContainer } from "@/apps/forge/components/LayoutContainer/LayoutContainer";
@@ -342,7 +344,7 @@ export const App = (props: any) => {
         <img className="tab-manager-empty-state__logo" src={forgeIcon} alt="Forge logo" />
         <button
           type="button"
-          className="tab-manager-empty-state__quick-start-btn"
+          className="forge-btn forge-btn--primary"
           onClick={() => ForgeState.tabManager.addTab(new TabQuickStartState())}
         >
           Open Start Page
@@ -355,14 +357,16 @@ export const App = (props: any) => {
     <>
       <div
         id="app"
+        className="forge-shell"
         style={{ opacity: (appReady) ? '1': '0' }}
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
+        <ForgeTitlebar />
         <MenuTop />
-        <div id="container">
+        <div id="container" className="forge-workspace">
           <LayoutContainerProvider>
             <LayoutContainer westContent={westContent}>
               <TabManagerProvider manager={ForgeState.tabManager}>
@@ -371,6 +375,7 @@ export const App = (props: any) => {
             </LayoutContainer>
           </LayoutContainerProvider>
         </div>
+        <ForgeStatusBar />
         <ModalChangeGame></ModalChangeGame>
         <ForgeFloatingMiniPlayer />
         {isDragOver && (
