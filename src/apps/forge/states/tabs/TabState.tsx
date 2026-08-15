@@ -310,6 +310,10 @@ export class TabState extends EventListenerModel {
     }
   }
 
+  getSaveSuggestedName(): string {
+    return this.getFile()?.getFilename() ?? 'untitled';
+  }
+
 
   updateFile(){
     //stub method to be overridden by subclasses
@@ -370,7 +374,7 @@ export class TabState extends EventListenerModel {
               }
             }else{
               let newHandle = await window.showSaveFilePicker({
-                suggestedName: currentFile.getFilename(),
+                suggestedName: this.getSaveSuggestedName(),
                 types: this.saveTypes.length ? this.saveTypes : undefined
               });
               if(newHandle){
@@ -432,7 +436,7 @@ export class TabState extends EventListenerModel {
         if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.ELECTRON){
           const savePath = await dialog.showSaveDialog({
             title: 'Save File As',
-            defaultPath: currentFile.getFilename(),
+            defaultPath: this.getSaveSuggestedName(),
             filters: this.getSaveTypes()
           });
           if(savePath && !savePath.cancelled){
@@ -464,7 +468,7 @@ export class TabState extends EventListenerModel {
           }
         }else if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.BROWSER){
           const newHandle = await window.showSaveFilePicker({
-            suggestedName: currentFile.getFilename(),
+            suggestedName: this.getSaveSuggestedName(),
             types: this.getSaveTypes(),
           });
           if(newHandle){

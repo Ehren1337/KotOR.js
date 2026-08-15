@@ -467,13 +467,30 @@ export class TabTextEditorState extends TabState {
     return resolveIncludesForNss(code, includeMap);
   }
 
+  getSaveSuggestedName(): string {
+    const file = this.getFile();
+    if(this.isNcsFile()){
+      const base = (typeof file?.resref === 'string' && file.resref.length)
+        ? file.resref
+        : (file?.getFilename() || 'untitled').replace(/\.[^.]+$/, '') || 'untitled';
+      return `${base}.nss`;
+    }
+    return file?.getFilename() ?? 'untitled.nss';
+  }
+
   async getExportBuffer(resref?: string, ext?: string): Promise<Uint8Array> {
-    const kind = (ext || this.file?.ext || '').toLowerCase();
-    if (kind === 'ncs') {
+    const destExt = (ext || '').replace(/^\./, '').toLowerCase();
+    // Save/Save As from an .ncs tab always writes decompiled NSS. Compiled bytecode
+    // is only emitted by Compile (sibling .ncs), never by overwriting the opened file.
+    if (destExt === 'ncs' && !this.isNcsFile()) {
       return this.ncs?.length ? this.ncs : new Uint8Array(0);
     }
-    this.updateFile();
-    return this.file.buffer ? this.file.buffer : new TextEncoder().encode(this.code);
+    const encoded = new TextEncoder().encode(this.code ?? '');
+    if(this.file && !this.isNcsFile()){
+      this.updateFile();
+      return this.file.buffer ? this.file.buffer : encoded;
+    }
+    return encoded;
   }
 
   updateFile(): void {
