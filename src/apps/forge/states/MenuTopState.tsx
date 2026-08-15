@@ -2,6 +2,7 @@ import { EditorFile } from "@/apps/forge/EditorFile";
 import { MenuTopItem } from "@/apps/forge/MenuTopItem";
 import { Project } from "@/apps/forge/Project";
 import { ModalChangeGameState } from "@/apps/forge/components/modal/ModalChangeGame";
+import { ModalSettingsState } from "@/apps/forge/components/modal/ModalSettingsState";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { TabQuickStartState } from "@/apps/forge/states/tabs/TabQuickStartState";
 import { TabState } from "@/apps/forge/states/tabs/TabState";
@@ -30,6 +31,7 @@ export class MenuTopState {
   static menuItemCloseProject: MenuTopItem;
   static menuItemFileSep: MenuTopItem;
   static menuItemChangeGame: MenuTopItem;
+  static menuItemSettings: MenuTopItem;
   static menuItemFileSep2: MenuTopItem;
   static menuItemNewFile: MenuTopItem;
   static menuItemOpenFile: MenuTopItem;
@@ -170,6 +172,10 @@ export class MenuTopState {
 
     this.menuItemChangeGame = new MenuTopItem({name: 'Change Game', onClick: async function(){
       ModalChangeGameState.Show();
+    }});
+
+    this.menuItemSettings = new MenuTopItem({name: 'Settings...', onClick: () => {
+      ModalSettingsState.Show();
     }});
 
     this.menuItemFileSep2 = new MenuTopItem({type: 'separator'});
@@ -389,6 +395,7 @@ export class MenuTopState {
       this.menuItemFileSep,
 
       this.menuItemChangeGame,
+      this.menuItemSettings,
       this.menuItemFileSep2,
 
       this.menuItemNewFile,

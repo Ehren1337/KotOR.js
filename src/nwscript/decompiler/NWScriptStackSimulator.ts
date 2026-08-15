@@ -2,7 +2,10 @@ import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
 import { NWScriptExpression, NWScriptExpressionType } from "@/nwscript/decompiler/NWScriptExpression";
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
 import type { NWScriptFunctionParameter } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
-import type { JsrUserRoutineMeta } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
+import {
+  inferActionReturnFromStoreCleanup,
+  type JsrUserRoutineMeta,
+} from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
 import {
   getArithmeticTypeSignature,
   getBinaryResultDataType,
@@ -587,18 +590,28 @@ export class NWScriptStackSimulator {
     }
     const argCount = rawArgCount;
 
+    const storeResult = inferActionReturnFromStoreCleanup(instruction);
+
     if (!actionDef) {
+      const returnType = storeResult?.dataType ?? NWScriptDataType.VOID;
       this.diagnostics.push(
-        `0x${instruction.address.toString(16)}: ACTION ${instruction.action} has no signature; assuming ${argCount} scalar arguments and void return`
+        `0x${instruction.address.toString(16)}: ACTION ${instruction.action} has no signature; assuming ${argCount} scalar arguments` +
+          (storeResult
+            ? ` and a ${storeResult.stackSlots}-slot return from ACTION/CPDOWNSP/MOVSP store cleanup`
+            : ' and void return')
       );
       const args = argCount > 0
         ? this.popScalarArgumentsBySlotCount(argCount, instruction, 'unknown ACTION arguments')
         : [];
-      return NWScriptExpression.functionCall(
+      const expr = NWScriptExpression.functionCall(
         `__NCS_ACTION_${instruction.action}__`,
         args,
-        NWScriptDataType.VOID
+        returnType
       );
+      if (storeResult) {
+        this.push(expr, instruction.address, storeResult.stackSlots);
+      }
+      return expr;
     }
 
     const args: NWScriptExpression[] = [];
@@ -625,15 +638,22 @@ export class NWScriptStackSimulator {
     }
 
     const functionName = actionDef.name || `Action_${instruction.action}`;
-    const returnType = actionDef.type || NWScriptDataType.VOID;
+    const returnType =
+      storeResult &&
+      (actionDef.type === NWScriptDataType.VOID || actionDef.type === NWScriptDataType.ACTION)
+        ? storeResult.dataType
+        : (actionDef.type || NWScriptDataType.VOID);
 
     const expr = NWScriptExpression.functionCall(functionName, args, returnType);
-    
-    // Push return value if not void
+
     if (returnType !== NWScriptDataType.VOID) {
-      this.push(expr, instruction.address, stackSlotsForDataType(returnType));
+      this.push(
+        expr,
+        instruction.address,
+        storeResult?.stackSlots ?? stackSlotsForDataType(returnType)
+      );
     }
-    
+
     return expr;
   }
 

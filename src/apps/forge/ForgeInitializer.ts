@@ -93,6 +93,7 @@ export class ForgeInitializer {
 
   static async Init(game: KotOR.GameEngineType){
 
+    KotOR.GameState.GameKey = game;
     KotOR.ResourceLoader.InitCache();
     KotOR.GameState.PerformanceMonitor = KotOR.PerformanceMonitor;
 

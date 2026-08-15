@@ -18,6 +18,7 @@ import {
   OP_RSADD,
   OP_SAVEBP,
 } from "@/nwscript/NWScriptOPCodes";
+import { inferActionReturnFromStoreCleanup } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
 import {
   getUnaryDataType,
   toSignedInt32,
@@ -140,11 +141,13 @@ export class NWScriptLocalVariableAnalyzer {
         return null;
       }
 
-      if (
-        current.code === OP_ACTION &&
-        current.actionDefinition?.type === NWScriptDataType.VOID
-      ) {
-        return null;
+      if (current.code === OP_ACTION) {
+        const declaredVoid = current.actionDefinition?.type === NWScriptDataType.VOID;
+        if (declaredVoid && !inferActionReturnFromStoreCleanup(current)) {
+          return null;
+        }
+        current = current.nextInstr;
+        continue;
       }
 
       if (current.code === OP_JSR) {

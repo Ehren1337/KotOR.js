@@ -210,7 +210,7 @@ export class TabTextEditorState extends TabState {
             const bytes = response.buffer;
             // Own copy so later edits / tooling do not mutate the file buffer backing store.
             this.ncs = new Uint8Array(bytes);
-            this.nwScript = new KotOR.NWScript(this.ncs);
+            this.nwScript = new KotOR.NWScript(this.ncs, { game: KotOR.ApplicationProfile.GameKey });
             this.nwScript.name = file?.getFilename().split('.')[0] || '';
             this.applyDecompile(this.nwScript);
             this.triggerLinterTimeout();
@@ -600,7 +600,7 @@ export class TabTextEditorState extends TabState {
       console.log('AST', ForgeState.nwScriptParser.toJSON());
       console.log('compile', 'compiling...');
       this.ncs = result.ncs;
-      this.nwScript = new KotOR.NWScript(this.ncs);
+      this.nwScript = new KotOR.NWScript(this.ncs, { game: KotOR.ApplicationProfile.GameKey });
       if (this.file?.getFilename) {
         this.nwScript.name = this.file.getFilename().split('.')[0] || this.nwScript.name;
       }

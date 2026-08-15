@@ -4,9 +4,10 @@ import { MenuTopItem } from "@/apps/forge/MenuTopItem";
 
 const SUBMENU_CLOSE_DELAY_MS = 180;
 
-export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopItem }) {
+export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopItem; closeRoot?: () => void }) {
   const item: MenuTopItem = props.item;
   const parent = props.parent;
+  const closeRoot = props.closeRoot;
   const [open, setOpen] = useState(false);
   const [, rerender] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -37,6 +38,7 @@ export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopIte
   const onClickRoot = () => {
     if (typeof item.onClick === "function" && !item.items.length) {
       item.onClick(item);
+      setOpen(false);
       return;
     }
     setOpen((v) => !v);
@@ -46,7 +48,9 @@ export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopIte
     e.stopPropagation();
     if (typeof item.onClick === "function") {
       item.onClick(item);
-    }
+  }
+    setOpen(false);
+    closeRoot?.();
   };
 
   if (item.type === "separator" || (item.type as string) === "sep") {
@@ -72,7 +76,7 @@ export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopIte
         {open && hasChildren ? (
           <div className="forge-menu">
             {item.items.map((child) => (
-              <MenuItem key={`menu-item-${child.uuid}`} item={child} parent={item} />
+              <MenuItem key={`menu-item-${child.uuid}`} item={child} parent={item} closeRoot={() => setOpen(false)} />
             ))}
           </div>
         ) : null}
@@ -105,7 +109,7 @@ export const MenuItem = function(props: { item: MenuTopItem; parent?: MenuTopIte
             }}
           >
             {item.items.map((child) => (
-              <MenuItem key={`menu-item-${child.uuid}`} item={child} parent={item} />
+              <MenuItem key={`menu-item-${child.uuid}`} item={child} parent={item} closeRoot={closeRoot} />
             ))}
           </div>
         ) : null}

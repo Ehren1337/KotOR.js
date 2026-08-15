@@ -10,6 +10,7 @@ import { App } from "@/apps/forge/App";
 import { Launcher } from "@/apps/launcher/context/Launcher";
 import { applyProfileSeo } from "@/apps/common/seo/applyProfileSeo";
 import { buildProfileSeo } from "@/apps/common/seo/profileSeo";
+import { applyForgeAccent } from "@/apps/forge/settings/forgeSettings";
 
 TXILanguageService.initTXILanguage();
 
@@ -65,6 +66,7 @@ const loadReactApplication = () => {
 
   document.documentElement.classList.add(KotOR.ApplicationProfile.GameKey);
   document.body.classList.add(KotOR.ApplicationProfile.GameKey);
+  applyForgeAccent();
   loadReactApplication();
 })();
 

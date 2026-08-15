@@ -6,7 +6,7 @@ export interface ForgeDialogProps {
   onHide?: () => void;
   children?: React.ReactNode;
   className?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   backdrop?: boolean | "static";
   keyboard?: boolean;
   centered?: boolean;
@@ -108,7 +108,10 @@ export function ForgeDialog({
     requestHide();
   };
 
-  const sizeClass = size === "lg" ? "forge-dialog--lg" : size === "sm" ? "forge-dialog--sm" : "";
+  const sizeClass =
+    size === "xl" ? "forge-dialog--xl" :
+    size === "lg" ? "forge-dialog--lg" :
+    size === "sm" ? "forge-dialog--sm" : "";
 
   const patched = React.Children.map(children, (child) => {
     if (!React.isValidElement(child)) return child;

@@ -57,3 +57,15 @@ html.TSL {
   --forge-accent-hover: rgb(45, 200, 160);
   --forge-accent-muted: rgba(26, 178, 140, 0.22);
 }
+
+html[data-forge-accent="kotor"] {
+  --forge-accent: #3a8fd4;
+  --forge-accent-hover: #4ea3e8;
+  --forge-accent-muted: rgba(58, 143, 212, 0.22);
+}
+
+html[data-forge-accent="tsl"] {
+  --forge-accent: rgb(26, 178, 140);
+  --forge-accent-hover: rgb(45, 200, 160);
+  --forge-accent-muted: rgba(26, 178, 140, 0.22);
+}

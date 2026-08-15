@@ -70,6 +70,96 @@ const HARD_STOP_BACKWARDS = new Set<number>([
   OP_ACTION,
 ]);
 
+export interface InferredActionReturn {
+  dataType: NWScriptDataType;
+  stackSlots: number;
+}
+
+function nextNonNopInstruction(
+  start: NWScriptInstruction | null | undefined
+): NWScriptInstruction | null {
+  let current = start ?? null;
+  const visited = new Set<number>();
+  while (current && current.code === OP_NOP && !visited.has(current.address)) {
+    visited.add(current.address);
+    current = current.nextInstr ?? null;
+  }
+  return current;
+}
+
+/**
+ * Compiler rvalue store of an engine ACTION result:
+ * `ACTION ; CPDOWNSP <width> ; MOVSP -<width>`.
+ *
+ * That pair is opcode evidence the ACTION pushed `width` bytes even when the
+ * loaded nwscript table is missing the id or lists VOID. Bare `ACTION ; MOVSP`
+ * is not this pattern: it is unused-result cleanup or procedure-local teardown.
+ */
+export function inferActionReturnFromStoreCleanup(
+  action: NWScriptInstruction
+): InferredActionReturn | null {
+  if (action.code !== OP_ACTION) return null;
+
+  const write = nextNonNopInstruction(action.nextInstr);
+  const cleanup = write ? nextNonNopInstruction(write.nextInstr) : null;
+  if (write?.code !== OP_CPDOWNSP || cleanup?.code !== OP_MOVSP) {
+    return null;
+  }
+
+  const storeBytes = write.size;
+  const cleanupBytes = -toSignedInt32(cleanup.offset);
+  if (
+    storeBytes === undefined ||
+    storeBytes <= 0 ||
+    storeBytes % 4 !== 0 ||
+    storeBytes !== cleanupBytes
+  ) {
+    return null;
+  }
+
+  const stackSlots = storeBytes / 4;
+  const declared = action.actionDefinition?.type;
+  if (
+    declared !== undefined &&
+    declared !== NWScriptDataType.VOID &&
+    declared !== NWScriptDataType.ACTION &&
+    stackBytesForDataType(declared) === storeBytes
+  ) {
+    return { dataType: declared, stackSlots };
+  }
+
+  let cursor: NWScriptInstruction | null | undefined = action.prevInstr;
+  const seen = new Set<number>();
+  while (cursor && !seen.has(cursor.address) && seen.size < 16) {
+    seen.add(cursor.address);
+    if (cursor.code === OP_NOP) {
+      cursor = cursor.prevInstr;
+      continue;
+    }
+    if (HARD_STOP_BACKWARDS.has(cursor.code)) {
+      break;
+    }
+    if (cursor.code === OP_RSADD) {
+      const allocated = getUnaryDataType(cursor.type);
+      if (allocated && stackBytesForDataType(allocated) === storeBytes) {
+        return { dataType: allocated, stackSlots };
+      }
+      break;
+    }
+    cursor = cursor.prevInstr;
+  }
+
+  if (stackSlots === 3) {
+    return { dataType: NWScriptDataType.VECTOR, stackSlots };
+  }
+  return { dataType: NWScriptDataType.INTEGER, stackSlots };
+}
+
+function actionReturnStackSlots(ins: NWScriptInstruction): number {
+  return inferActionReturnFromStoreCleanup(ins)?.stackSlots
+    ?? stackSlotsForDataType(ins.actionDefinition?.type);
+}
+
 /**
  * Dword stack delta used for caller/callee signature inference.
  * Returns null when the opcode cannot be modeled safely for inference.
@@ -171,9 +261,11 @@ export function instructionForwardStackSlotDelta(ins: NWScriptInstruction): numb
 
     case OP_ACTION: {
       const raw = ins.argCount ?? 0;
-      const argSlots = actionArgumentStackSlots(ins.actionDefinition, raw);
+      const argSlots = ins.actionDefinition
+        ? actionArgumentStackSlots(ins.actionDefinition, raw)
+        : raw;
       if (argSlots === null) return null;
-      return -argSlots + stackSlotsForDataType(ins.actionDefinition?.type);
+      return -argSlots + actionReturnStackSlots(ins);
     }
 
     case OP_JSR:

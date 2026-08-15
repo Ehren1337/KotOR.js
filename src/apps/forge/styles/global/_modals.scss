@@ -29,6 +29,13 @@
     max-width: min(900px, calc(100vw - 48px));
   }
 
+  &--xl {
+    min-width: 720px;
+    width: min(920px, calc(100vw - 48px));
+    height: min(640px, calc(100vh - 48px));
+    max-width: min(920px, calc(100vw - 48px));
+  }
+
   &--sm {
     min-width: 280px;
   }

@@ -1,4 +1,5 @@
 import { get, set } from 'idb-keyval';
+import { isPlainObject, mergeConfigDefaults } from '@/utility/mergeConfigDefaults';
 
 /**
  * ConfigClient class.
@@ -14,11 +15,10 @@ export class ConfigClient {
   static UUID: string = ConfigClient.uuidv4();
 
   static async Init() {
-    ConfigClient.options = Object.assign(
-      defaults, 
+    ConfigClient.options = mergeConfigDefaults(
+      defaults,
       await get('app_settings')
     );
-
   }
 
   static get(path: string|any[] = '', defaultValue?:any){
@@ -51,35 +51,38 @@ export class ConfigClient {
       path = path.join('.');
 
     if(typeof value == 'string' || typeof value == 'number' || typeof value == 'boolean' || typeof value == 'object' || Array.isArray(value)){
-      let parts = path.split('.');
-      let scope = ConfigClient.options;
-      let i = 0, len = Math.max(parts.length-1, 0);
-      for(i = 0; i < len; i++){
-        if(scope[parts[i]]){
-          scope = scope[parts[i]];
-        }
-        
-        if(typeof scope == 'undefined'){
-          console.warn('ConfigManager.set', 'Invalid property', path);
-          return undefined;
-        }
-      }
-
-      if(scope[parts[i]] == ConfigClient.options){
+      let parts = path.split('.').filter((part) => part.length > 0);
+      if(!parts.length){
+        console.warn('ConfigManager.set', 'Invalid property', path);
         return undefined;
       }
 
-      if(typeof scope[parts[len]] == 'undefined'){
-        scope[parts[len]] = {};
+      let scope = ConfigClient.options;
+      const last = parts.length - 1;
+      for(let i = 0; i < last; i++){
+        const part = parts[i];
+        const next = scope[part];
+        if(!isPlainObject(next)){
+          scope[part] = {};
+        }
+        scope = scope[part];
       }
 
-      if(typeof scope[parts[len]] != 'undefined'){
-        let _old = JSON.parse(JSON.stringify(scope[parts[len]]));
-        scope[parts[len]] = value;
-        if(_old != value){
-          // ConfigClient.triggerEvent(path, value, _old);
-          ConfigClient.save(null, true);
-        }
+      const leaf = parts[last];
+      if(leaf == '' || typeof scope == 'undefined'){
+        console.warn('ConfigManager.set', 'Invalid property', path);
+        return undefined;
+      }
+
+      let _old: any = undefined;
+      try {
+        _old = JSON.parse(JSON.stringify(scope[leaf]));
+      }catch(e){
+        _old = undefined;
+      }
+      scope[leaf] = value;
+      if(_old != value){
+        ConfigClient.save(null, true);
       }
     }else{
       console.warn('ConfigManager.set', 'Invalid value type', typeof value, value);
@@ -102,10 +105,12 @@ export class ConfigClient {
 
 }
 
-window.addEventListener('storage', (event: StorageEvent) => {
-  console.log('storage', event);
-  ConfigClient.Init();
-});
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (event: StorageEvent) => {
+    console.log('storage', event);
+    ConfigClient.Init();
+  });
+}
 
 const defaults: any = {
   first_run: true,
@@ -225,5 +230,11 @@ const defaults: any = {
   },
   Projects_Directory: null,
   recent_projects: [],
-  recent_files: []
+  recent_files: [],
+  Forge: {
+    accent: 'follow-game',
+    defaultEditors: {},
+  },
 };
+
+export { mergeConfigDefaults };

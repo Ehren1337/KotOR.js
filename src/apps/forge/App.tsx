@@ -11,6 +11,7 @@ import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerCon
 import { LayoutContainer } from "@/apps/forge/components/LayoutContainer/LayoutContainer";
 import ModalGrantAccess from "@/apps/forge/components/modal/ModalGrantAccess";
 import { ModalChangeGame } from "@/apps/forge/components/modal/ModalChangeGame";
+import { ModalSettings } from "@/apps/forge/components/modal/ModalSettings";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { useApp } from "@/apps/forge/context/AppContext";
 import { ModalManager } from "@/apps/forge/components/modal/ModalManager";
@@ -376,6 +377,7 @@ export const App = (props: any) => {
           </LayoutContainerProvider>
         </div>
         <ForgeStatusBar />
+        <ModalSettings></ModalSettings>
         <ModalChangeGame></ModalChangeGame>
         <ForgeFloatingMiniPlayer />
         {isDragOver && (

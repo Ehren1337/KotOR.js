@@ -7,6 +7,7 @@ import {
   inferSubroutineCallAbiFromCallSites,
   inferSubroutineParameterSlotsFromCallSites,
   inferSubroutineReturnTypeFromCallSites,
+  inferActionReturnFromStoreCleanup,
   inferJsrArgumentTypes,
   inferJsrArgumentTypesByTotalSlots,
   instructionForwardStackSlotDelta,
@@ -1068,12 +1069,23 @@ export class NWScriptFunctionAnalyzer {
 
         if (instruction.code === OP_ACTION) {
           const definition = instruction.actionDefinition;
-          const argCount = Math.min(instruction.argCount ?? 0, definition?.args.length ?? 0);
-          if (!definition) break;
-          for (let index = 0; index < argCount; index += 1) {
-            consume(definition.args[index]);
+          const inferred = inferActionReturnFromStoreCleanup(instruction);
+          if (definition) {
+            const argCount = Math.min(instruction.argCount ?? 0, definition.args.length);
+            for (let index = 0; index < argCount; index += 1) {
+              consume(definition.args[index]);
+            }
+            push(
+              unknown(),
+              inferred?.stackSlots ?? stackSlotsForDataType(definition.type)
+            );
+          } else {
+            const argCount = instruction.argCount ?? 0;
+            for (let index = 0; index < argCount; index += 1) {
+              consume(NWScriptDataType.INTEGER);
+            }
+            push(unknown(inferred?.dataType), inferred?.stackSlots ?? 0);
           }
-          push(unknown(), stackSlotsForDataType(definition.type));
           continue;
         }
 
