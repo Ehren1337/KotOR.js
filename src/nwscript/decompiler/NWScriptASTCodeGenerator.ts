@@ -264,16 +264,7 @@ export class NWScriptASTCodeGenerator {
     
     lines.push(`if (${condition})`);
     lines.push('{');
-    
-    this.indentLevel++;
-    const bodyLines = this.generateBlock(ifNode.thenBody);
-    if (bodyLines.length > 0) {
-      lines.push(...bodyLines.map(line => this.indent() + line));
-    } else {
-      lines.push(this.indent() + '// Empty');
-    }
-    this.indentLevel--;
-    
+    lines.push(...this.nestLines(this.generateBlock(ifNode.thenBody), true));
     lines.push('}');
     
     return lines;
@@ -288,29 +279,11 @@ export class NWScriptASTCodeGenerator {
     
     lines.push(`if (${condition})`);
     lines.push('{');
-    
-    this.indentLevel++;
-    const thenLines = this.generateBlock(ifElseNode.thenBody);
-    if (thenLines.length > 0) {
-      lines.push(...thenLines.map(line => this.indent() + line));
-    } else {
-      lines.push(this.indent() + '// Empty');
-    }
-    this.indentLevel--;
-    
+    lines.push(...this.nestLines(this.generateBlock(ifElseNode.thenBody), true));
     lines.push('}');
     lines.push('else');
     lines.push('{');
-    
-    this.indentLevel++;
-    const elseLines = this.generateBlock(ifElseNode.elseBody);
-    if (elseLines.length > 0) {
-      lines.push(...elseLines.map(line => this.indent() + line));
-    } else {
-      lines.push(this.indent() + '// Empty');
-    }
-    this.indentLevel--;
-    
+    lines.push(...this.nestLines(this.generateBlock(ifElseNode.elseBody), true));
     lines.push('}');
     
     return lines;
@@ -325,16 +298,7 @@ export class NWScriptASTCodeGenerator {
     
     lines.push(`while (${condition})`);
     lines.push('{');
-    
-    this.indentLevel++;
-    const bodyLines = this.generateBlock(whileNode.body);
-    if (bodyLines.length > 0) {
-      lines.push(...bodyLines.map(line => this.indent() + line));
-    } else {
-      lines.push(this.indent() + '// Empty');
-    }
-    this.indentLevel--;
-    
+    lines.push(...this.nestLines(this.generateBlock(whileNode.body), true));
     lines.push('}');
     
     return lines;
@@ -349,16 +313,7 @@ export class NWScriptASTCodeGenerator {
     
     lines.push('do');
     lines.push('{');
-    
-    this.indentLevel++;
-    const bodyLines = this.generateBlock(doWhileNode.body);
-    if (bodyLines.length > 0) {
-      lines.push(...bodyLines.map(line => this.indent() + line));
-    } else {
-      lines.push(this.indent() + '// Empty');
-    }
-    this.indentLevel--;
-    
+    lines.push(...this.nestLines(this.generateBlock(doWhileNode.body), true));
     lines.push(`} while (${condition});`);
     
     return lines;
@@ -390,17 +345,7 @@ export class NWScriptASTCodeGenerator {
     
     lines.push(`for (${init}; ${condition}; ${increment})`);
     lines.push('{');
-    
-    this.indentLevel++;
-    const bodyLines = this.generateBlock(forNode.body);
-    if (bodyLines.length > 0) {
-      lines.push(...bodyLines.map(line => this.indent() + line));
-    } else {
-      // Empty body - add empty line or comment
-      lines.push(this.indent() + '// Empty');
-    }
-    this.indentLevel--;
-    
+    lines.push(...this.nestLines(this.generateBlock(forNode.body), true));
     lines.push('}');
     
     return lines;
@@ -411,26 +356,14 @@ export class NWScriptASTCodeGenerator {
     lines.push(`switch (${switchNode.expression.toNSS()})`);
     lines.push('{');
 
-    this.indentLevel++;
     for (const c of switchNode.cases) {
-      lines.push(this.indent() + `case ${c.value.toNSS()}:`);
-      this.indentLevel++;
-      const bodyLines = this.generateBlock(c.body);
-      if (bodyLines.length > 0) {
-        lines.push(...bodyLines.map((line) => this.indent() + line));
-      }
-      this.indentLevel--;
+      lines.push(`${this.indentString}case ${c.value.toNSS()}:`);
+      lines.push(...this.nestLines(this.nestLines(this.generateBlock(c.body))));
     }
     if (switchNode.defaultCase) {
-      lines.push(this.indent() + 'default:');
-      this.indentLevel++;
-      const defLines = this.generateBlock(switchNode.defaultCase.body);
-      if (defLines.length > 0) {
-        lines.push(...defLines.map((line) => this.indent() + line));
-      }
-      this.indentLevel--;
+      lines.push(`${this.indentString}default:`);
+      lines.push(...this.nestLines(this.nestLines(this.generateBlock(switchNode.defaultCase.body))));
     }
-    this.indentLevel--;
 
     lines.push('}');
     return lines;
@@ -466,6 +399,17 @@ export class NWScriptASTCodeGenerator {
       default:
         return 'unknown';
     }
+  }
+
+  /**
+   * Prefix nested block lines by one indent. Nested control structures return
+   * unindented lines, so a global indent counter would double-space them.
+   */
+  private nestLines(bodyLines: string[], emptyComment = false): string[] {
+    if (bodyLines.length > 0) {
+      return bodyLines.map(line => this.indentString + line);
+    }
+    return emptyComment ? [this.indentString + '// Empty'] : [];
   }
 
   /**

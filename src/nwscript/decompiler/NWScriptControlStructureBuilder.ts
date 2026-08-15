@@ -2412,7 +2412,6 @@ export class NWScriptControlStructureBuilder {
       }
       const node = this.buildNodeFromBlock(block, mini, processed);
       if (node) {
-        this.suppressNaturalLoopLatch(node, structure);
         nodes.push(node);
       }
     }
@@ -2423,51 +2422,38 @@ export class NWScriptControlStructureBuilder {
         nodes.push({
           type: 'basic_block',
           block,
-          suppressTerminalLoopJump: this.isNaturalLoopLatch(block, structure),
         });
       }
     }
 
-    return nodes.length === 1 ? nodes[0] : { type: 'sequence', nodes };
+    const body = nodes.length === 1 ? nodes[0] : { type: 'sequence' as const, nodes };
+    this.markLoopBodyTailLatch(body, structure);
+    return body;
   }
 
+  /** True when the block's last instruction is the compiler latch back to header or increment. */
   private isNaturalLoopLatch(
     block: NWScriptBasicBlock,
     structure: NWScriptControlStructure
   ): boolean {
-    if (block.endInstruction.code !== OP_JMP || block.instructions.length !== 1) {
+    if (block.endInstruction.code !== OP_JMP) {
       return false;
     }
     const target = this.cfg.getIntraProceduralSuccessors(block, false)[0];
     return target === structure.headerBlock || target === structure.incrementBlock;
   }
 
-  private suppressNaturalLoopLatch(node: ControlNode, structure: NWScriptControlStructure): void {
-    switch (node.type) {
-      case 'basic_block':
-        if (this.isNaturalLoopLatch(node.block, structure)) {
-          node.suppressTerminalLoopJump = true;
-        }
-        return;
-      case 'sequence':
-        for (const child of node.nodes) {
-          this.suppressNaturalLoopLatch(child, structure);
-        }
-        return;
-      case 'if':
-        this.suppressNaturalLoopLatch(node.body, structure);
-        return;
-      case 'if_else':
-        this.suppressNaturalLoopLatch(node.thenBody, structure);
-        this.suppressNaturalLoopLatch(node.elseBody, structure);
-        return;
-      case 'while':
-      case 'do_while':
-      case 'for':
-        this.suppressNaturalLoopLatch(node.body, structure);
-        return;
-      default:
-        return;
+  /**
+   * Suppress the sequential-tail JMP that closes a while/for body. Nested `if (x) continue;`
+   * arms are left unmarked so they still emit `continue`.
+   */
+  private markLoopBodyTailLatch(node: ControlNode, structure: NWScriptControlStructure): void {
+    let tail: ControlNode = node;
+    while (tail.type === 'sequence' && tail.nodes.length > 0) {
+      tail = tail.nodes[tail.nodes.length - 1];
+    }
+    if (tail.type === 'basic_block' && this.isNaturalLoopLatch(tail.block, structure)) {
+      tail.suppressTerminalLoopJump = true;
     }
   }
 
