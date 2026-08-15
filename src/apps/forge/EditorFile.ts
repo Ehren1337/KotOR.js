@@ -40,6 +40,7 @@ export class EditorFile extends EventListenerModel {
   useGameFileSystem: boolean = false;
   useProjectFileSystem: boolean = false;
   useSystemFileSystem: boolean = false;
+  trackRecent: boolean = true;
 
   buffer: Uint8Array = new Uint8Array(0);
   buffer2?: Uint8Array; //for dual file types like mdl/mdx
@@ -69,7 +70,7 @@ export class EditorFile extends EventListenerModel {
   set unsaved_changes(value){
     this._unsaved_changes = !!value;
     this.processEventListener<EditorFileEventListenerTypes>('onSaveStateChanged', [this]);
-    if(!this.unsaved_changes) ForgeState.addRecentFile(this);
+    if(!this.unsaved_changes && this.trackRecent) ForgeState.addRecentFile(this);
   }
 
   get resref(){
@@ -144,6 +145,7 @@ export class EditorFile extends EventListenerModel {
     this.useGameFileSystem = !!options.useGameFileSystem;
     this.useProjectFileSystem = !!options.useProjectFileSystem;
     this.useSystemFileSystem = !!options.useSystemFileSystem;
+    this.trackRecent = options.trackRecent !== false;
 
     if(!this.ext && this.reskey){
       this.ext = KotOR.ResourceTypes.getKeyByValue(this.reskey);

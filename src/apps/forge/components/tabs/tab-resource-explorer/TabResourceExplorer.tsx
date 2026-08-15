@@ -87,6 +87,7 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
           const editorFile = new EditorFile({
             path: entry.path,
             useGameFileSystem: true,
+            trackRecent: false,
           });
           const response = await editorFile.readFile();
           if (!response?.buffer?.length) {
