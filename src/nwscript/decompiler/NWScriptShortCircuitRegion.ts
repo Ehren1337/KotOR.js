@@ -13,6 +13,9 @@ import {
 } from "@/nwscript/NWScriptOPCodes";
 import { toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
 
+/** Compiler `&&` / `||` diamonds join within this many intra-procedural hops. */
+export const LOGICAL_JOIN_MAX_DISTANCE = 48;
+
 export type NWScriptShortCircuitOperator = "and" | "or";
 
 /**
@@ -112,17 +115,25 @@ function collectForwardRegion(
 
 function distancesFrom(
   cfg: NWScriptControlFlowGraph,
-  start: NWScriptBasicBlock
+  start: NWScriptBasicBlock,
+  maxDistance = LOGICAL_JOIN_MAX_DISTANCE
 ): Map<NWScriptBasicBlock, number> {
   const distances = new Map<NWScriptBasicBlock, number>([[start, 0]]);
   const queue = [start];
   while (queue.length > 0) {
     const block = queue.shift()!;
+    if (block.isExit || block.exitType === "return") {
+      continue;
+    }
+    const distance = distances.get(block)!;
+    if (distance >= maxDistance) {
+      continue;
+    }
     for (const successor of intraSuccessors(cfg, block)) {
       if (distances.has(successor)) {
         continue;
       }
-      distances.set(successor, distances.get(block)! + 1);
+      distances.set(successor, distance + 1);
       queue.push(successor);
     }
   }

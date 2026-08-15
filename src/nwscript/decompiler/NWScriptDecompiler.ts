@@ -215,6 +215,9 @@ export class NWScriptDecompiler {
 
   private measurePhase<T>(name: string, fn: () => T): T {
     const start = nwscriptDecompilerNowMs();
+    if (nwscriptDecompilerProfileEnabled()) {
+      console.log(`[NWScriptDecompiler] start ${name}`);
+    }
     const result = fn();
     if (this.lastProfile) {
       this.lastProfile.phases[name] = nwscriptDecompilerNowMs() - start;

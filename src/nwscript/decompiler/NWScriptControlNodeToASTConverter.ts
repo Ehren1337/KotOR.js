@@ -18,7 +18,8 @@ import { OP_RETN, OP_JMP, OP_CPDOWNSP, OP_CPDOWNBP, OP_MOVSP, OP_RSADD, OP_CPTOP
 import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
 import { NWScriptANDChainDetector } from "@/nwscript/decompiler/NWScriptANDChainDetector";
 import { NWScriptORChainDetector } from "@/nwscript/decompiler/NWScriptORChainDetector";
-import { nwscriptDecompilerDebug } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
+import { nwscriptDecompilerDebug, nwscriptDecompilerProfileEnabled } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
+import { LOGICAL_JOIN_MAX_DISTANCE } from "@/nwscript/decompiler/NWScriptShortCircuitRegion";
 import {
   buildJsrCalleeArgSlotsByEntryPc,
   collectJsrReturnReservationAddresses,
@@ -181,6 +182,7 @@ export class NWScriptControlNodeToASTConverter {
   private functionEntrySnapshots: Map<NWScriptFunction, NWScriptStackSnapshot> = new Map();
   private inferredBlockEntrySnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
   private inferredBlockExitSnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
+  private inferredBlockEntryFailed: Set<NWScriptBasicBlock> = new Set();
   private functionBodyBlocksByFunction: Map<NWScriptFunction, Set<NWScriptBasicBlock>> = new Map();
   private inferTempSimulator: NWScriptStackSimulator | null = null;
 
@@ -1178,8 +1180,9 @@ export class NWScriptControlNodeToASTConverter {
    * @param structureBuilder The structure builder (needed to build ControlNode trees for functions)
    */
   convertToAST(mainControlNode: ControlNode, structureBuilder: NWScriptControlStructureBuilder): NWScriptProgramNode {
-    // Build function nodes (including main function)
-    // The main function should be output as a function, not as mainBody
+    if (nwscriptDecompilerProfileEnabled()) {
+      console.log(`[NWScriptDecompiler] ast functions=${this.functions.length}`);
+    }
     const functionNodes = this.buildFunctionNodes(structureBuilder, mainControlNode);
 
     // Function conversion can contribute aggregate type evidence, so emit globals afterwards.
@@ -1422,6 +1425,7 @@ export class NWScriptControlNodeToASTConverter {
     if (!fallthrough) return undefined;
 
     const blocks = new Set<NWScriptBasicBlock>();
+    const queued = new Set<NWScriptBasicBlock>([fallthrough]);
     const queue = [fallthrough];
     const joinAddress = join.startInstruction.address;
     while (queue.length > 0) {
@@ -1430,7 +1434,13 @@ export class NWScriptControlNodeToASTConverter {
       if (block.startInstruction.address >= joinAddress) return undefined;
       blocks.add(block);
       for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
-        if (successor !== join && !this.cfg.isBackEdge(block, successor)) {
+        if (
+          successor !== join &&
+          !this.cfg.isBackEdge(block, successor) &&
+          !blocks.has(successor) &&
+          !queued.has(successor)
+        ) {
+          queued.add(successor);
           queue.push(successor);
         }
       }
@@ -1605,9 +1615,16 @@ export class NWScriptControlNodeToASTConverter {
       const queue = [start];
       while (queue.length > 0) {
         const block = queue.shift()!;
+        if (block.isExit || block.exitType === 'return') {
+          continue;
+        }
+        const distance = result.get(block)!;
+        if (distance >= LOGICAL_JOIN_MAX_DISTANCE) {
+          continue;
+        }
         for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
           if (this.cfg.isBackEdge(block, successor) || result.has(successor)) continue;
-          result.set(successor, result.get(block)! + 1);
+          result.set(successor, distance + 1);
           queue.push(successor);
         }
       }
@@ -1641,6 +1658,7 @@ export class NWScriptControlNodeToASTConverter {
   ): NWScriptStackSnapshot | undefined {
     const cached = this.inferredBlockEntrySnapshots.get(block);
     if (cached) return cached;
+    if (this.inferredBlockEntryFailed.has(block)) return undefined;
 
     if (block === functionContext.entryBlock) {
       return this.functionEntrySnapshots.get(functionContext);
@@ -1656,10 +1674,14 @@ export class NWScriptControlNodeToASTConverter {
         this.inferBlockExitSnapshot(predecessor, functionContext, visiting)
       )
       .filter((snapshot): snapshot is NWScriptStackSnapshot => snapshot !== undefined);
-    if (incoming.length === 0) return undefined;
+    if (incoming.length === 0) {
+      this.inferredBlockEntryFailed.add(block);
+      return undefined;
+    }
 
     const reference = incoming[0];
     if (!incoming.every(snapshot => this.stackShapesMatch(snapshot, reference))) {
+      this.inferredBlockEntryFailed.add(block);
       return undefined;
     }
     const merged = this.stackSimulator.mergeStackSnapshots(
@@ -3818,7 +3840,6 @@ export class NWScriptControlNodeToASTConverter {
     return this.functions
       .filter(func => !func.isMain) // Exclude main function (already added)
       .map(func => {
-        // Build ControlNode tree for this function
         const functionControlNode = structureBuilder.buildProcedure(func.entryBlock);
         
         // Convert ControlNode tree to block
