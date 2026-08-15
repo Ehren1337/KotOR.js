@@ -8,7 +8,13 @@ import { NWScriptLocalVariableAnalyzer } from "@/nwscript/decompiler/NWScriptLoc
 import { NWScriptControlNodeToASTConverter } from "@/nwscript/decompiler/NWScriptControlNodeToASTConverter";
 import { NWScriptAST } from "@/nwscript/decompiler/NWScriptAST";
 import type { NWScriptProgramNode } from "@/nwscript/decompiler/NWScriptAST";
-import { nwscriptDecompilerDebug, nwscriptDecompilerDebugEnabled } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
+import {
+  nwscriptDecompilerDebug,
+  nwscriptDecompilerDebugEnabled,
+  nwscriptDecompilerNowMs,
+  nwscriptDecompilerProfileEnabled,
+  type NWScriptDecompilerPhaseTimings,
+} from "@/nwscript/decompiler/NWScriptDecompilerDebug";
 import { applyNwscriptDecompilerCleanup } from "@/nwscript/decompiler/NWScriptDecompilerCleanupPass";
 import { collectJsrReturnReservationAddresses } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
 
@@ -37,6 +43,9 @@ export class NWScriptDecompiler {
   private astConverter: NWScriptControlNodeToASTConverter | null = null;
   private codeGenerator: NWScriptASTCodeGenerator | null = null;
 
+  /** Wall-clock phase timings from the last {@link decompile} / {@link buildProgramAst} call. */
+  lastProfile: NWScriptDecompilerPhaseTimings | null = null;
+
   constructor(script: NWScript) {
     this.script = script;
   }
@@ -60,6 +69,7 @@ export class NWScriptDecompiler {
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error("Decompilation error (AST build):", error);
+      this.finishProfile();
       return { ok: false, error: msg };
     }
   }
@@ -78,12 +88,17 @@ export class NWScriptDecompiler {
 
     try {
       nwscriptDecompilerDebug("Generating NSS source code...");
-      this.codeGenerator = new NWScriptASTCodeGenerator();
-      const nssSource = this.codeGenerator.generate(astResult.ast);
-      const header = this.generateHeader();
-      return header + '\n\n' + nssSource;
+      const codegenMs = this.measurePhase('codegen', () => {
+        this.codeGenerator = new NWScriptASTCodeGenerator();
+        const nssSource = this.codeGenerator.generate(astResult.ast);
+        const header = this.generateHeader();
+        return header + '\n\n' + nssSource;
+      });
+      this.finishProfile();
+      return codegenMs;
     } catch (error) {
       console.error('Decompilation error:', error);
+      this.finishProfile();
       return `// Error during decompilation: ${error instanceof Error ? error.message : String(error)}`;
     }
   }
@@ -92,33 +107,41 @@ export class NWScriptDecompiler {
    * Phases 1–6 shared by {@link decompile} and {@link buildProgramAst}.
    */
   private runPhasesThroughAst(): NWScriptBuildProgramAstResult {
+    this.beginProfile();
     if (!this.script.instructions || this.script.instructions.size === 0) {
+      this.finishProfile();
       return { ok: false, error: 'No instructions found' };
     }
 
     nwscriptDecompilerDebug('Building control flow graph...');
     this.cfg = new NWScriptControlFlowGraph(this.script);
-    this.cfg.build();
+    this.measurePhase('cfg', () => this.cfg!.build());
+    this.mergeCfgSubsteps();
     nwscriptDecompilerDebug('CFG built successfully');
 
     if (!this.cfg.entryBlock) {
+      this.finishProfile();
       return { ok: false, error: 'No entry block found' };
     }
 
     nwscriptDecompilerDebug('Analyzing global variables...');
     this.globalVarAnalyzer = new NWScriptGlobalVariableAnalyzer(this.script, this.cfg);
-    let globalInits = this.globalVarAnalyzer.analyze();
+    let globalInits = this.measurePhase('globals', () => this.globalVarAnalyzer!.analyze());
 
     nwscriptDecompilerDebug('Analyzing functions...');
     this.functionAnalyzer = new NWScriptFunctionAnalyzer(this.cfg, globalInits);
-    let functions = this.functionAnalyzer.analyze();
+    let functions = this.measurePhase('functions.pass1', () => this.functionAnalyzer!.analyze());
 
     // A preliminary function ABI is needed to simulate JSRs in global initializer expressions.
     // Rebuild signatures once the exact SAVEBP frame has removed transient return reservations.
-    globalInits = this.globalVarAnalyzer.recoverInitializerExpressions(functions);
+    globalInits = this.measurePhase('globals.recover1', () =>
+      this.globalVarAnalyzer!.recoverInitializerExpressions(functions)
+    );
     this.functionAnalyzer = new NWScriptFunctionAnalyzer(this.cfg, globalInits);
-    functions = this.functionAnalyzer.analyze();
-    globalInits = this.globalVarAnalyzer.recoverInitializerExpressions(functions);
+    functions = this.measurePhase('functions.pass2', () => this.functionAnalyzer!.analyze());
+    globalInits = this.measurePhase('globals.recover2', () =>
+      this.globalVarAnalyzer!.recoverInitializerExpressions(functions)
+    );
 
     nwscriptDecompilerDebug('Analyzing local variables...');
     this.localVarAnalyzer = new NWScriptLocalVariableAnalyzer(
@@ -126,37 +149,84 @@ export class NWScriptDecompiler {
       globalInits,
       collectJsrReturnReservationAddresses(functions, this.script)
     );
-    const localInits = this.localVarAnalyzer.analyze();
+    const localInits = this.measurePhase('locals', () => this.localVarAnalyzer!.analyze());
 
     nwscriptDecompilerDebug('Building control structures...');
     this.structureBuilder = new NWScriptControlStructureBuilder(this.cfg);
-    this.structureBuilder.analyze();
+    this.measurePhase('structures.analyze', () => this.structureBuilder!.analyze());
 
     const mainFunction = functions.find(f => f.isMain);
     const functionEntryBlock = mainFunction?.entryBlock || this.cfg.entryBlock;
     nwscriptDecompilerDebug(`[Decompiler] Building ControlNode tree from function entry block ${functionEntryBlock.id} (CFG entry block is ${this.cfg.entryBlock.id})`);
 
-    const controlNodeTree = this.structureBuilder.buildProcedure(functionEntryBlock);
+    const controlNodeTree = this.measurePhase('structures.buildProcedure', () =>
+      this.structureBuilder!.buildProcedure(functionEntryBlock)
+    );
     nwscriptDecompilerDebug('ControlNode tree built successfully');
     nwscriptDecompilerDebug(`[Decompiler] CFG has ${this.cfg.blocks.size} blocks`);
     nwscriptDecompilerDebug(`[Decompiler] Main function has ${mainFunction?.bodyBlocks.length || 0} body blocks`);
     nwscriptDecompilerDebug(`[Decompiler] ControlNode tree type: ${controlNodeTree.type}`);
 
     nwscriptDecompilerDebug('Converting ControlNode tree to AST...');
-    this.astConverter = new NWScriptControlNodeToASTConverter(
-      this.cfg,
-      functions,
-      globalInits,
-      localInits
-    );
-    const ast = this.astConverter.convertToAST(controlNodeTree, this.structureBuilder);
-    applyNwscriptDecompilerCleanup(ast, { cfg: this.cfg, functions });
+    const ast = this.measurePhase('ast', () => {
+      this.astConverter = new NWScriptControlNodeToASTConverter(
+        this.cfg!,
+        functions,
+        globalInits,
+        localInits
+      );
+      return this.astConverter.convertToAST(controlNodeTree, this.structureBuilder!);
+    });
+    this.measurePhase('cleanup', () => {
+      applyNwscriptDecompilerCleanup(ast, { cfg: this.cfg!, functions });
+    });
     nwscriptDecompilerDebug('AST built successfully');
     if (nwscriptDecompilerDebugEnabled()) {
       console.log('AST JSON:', JSON.stringify(NWScriptAST.toJSON(ast), null, 2));
     }
 
+    this.finishProfile();
     return { ok: true, ast };
+  }
+
+  private profileStartMs = 0;
+
+  private beginProfile(): void {
+    this.lastProfile = {
+      scriptName: this.script.name || 'unknown',
+      instructionCount: this.script.instructions?.size || 0,
+      blockCount: 0,
+      totalMs: 0,
+      phases: {},
+      cfg: {},
+    };
+    this.profileStartMs = nwscriptDecompilerNowMs();
+  }
+
+  private measurePhase<T>(name: string, fn: () => T): T {
+    const start = nwscriptDecompilerNowMs();
+    const result = fn();
+    if (this.lastProfile) {
+      this.lastProfile.phases[name] = nwscriptDecompilerNowMs() - start;
+    }
+    return result;
+  }
+
+  private mergeCfgSubsteps(): void {
+    if (!this.lastProfile || !this.cfg) return;
+    this.lastProfile.cfg = { ...this.cfg.lastBuildTimings };
+    this.lastProfile.blockCount = this.cfg.blocks.size;
+  }
+
+  private finishProfile(): void {
+    if (!this.lastProfile) return;
+    this.lastProfile.totalMs = nwscriptDecompilerNowMs() - this.profileStartMs;
+    if (this.cfg) {
+      this.lastProfile.blockCount = this.cfg.blocks.size;
+    }
+    if (nwscriptDecompilerProfileEnabled()) {
+      console.log('[NWScriptDecompiler profile]', JSON.stringify(this.lastProfile, null, 2));
+    }
   }
 
   /**

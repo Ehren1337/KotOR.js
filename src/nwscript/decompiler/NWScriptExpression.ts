@@ -255,6 +255,59 @@ export class NWScriptExpression {
     }
   }
 
+  /**
+   * Structural equality for stack-join compares. Matches the values {@link toNSS} would
+   * distinguish without rebuilding source text.
+   */
+  equals(other: NWScriptExpression | null | undefined): boolean {
+    if (other == null) return false;
+    if (other === this) return true;
+    if (this.type !== other.type || this.dataType !== other.dataType) return false;
+    if (this.structureTypeName !== other.structureTypeName) return false;
+    if (this.structureFieldTypes.length !== other.structureFieldTypes.length) return false;
+    for (let index = 0; index < this.structureFieldTypes.length; index++) {
+      if (this.structureFieldTypes[index] !== other.structureFieldTypes[index]) return false;
+    }
+
+    switch (this.type) {
+      case NWScriptExpressionType.CONSTANT:
+        if (typeof this.value === 'number' && typeof other.value === 'number') {
+          return this.value === other.value || (Number.isNaN(this.value) && Number.isNaN(other.value));
+        }
+        return this.value === other.value;
+      case NWScriptExpressionType.VARIABLE:
+        return this.variableName === other.variableName && this.isGlobal === other.isGlobal;
+      case NWScriptExpressionType.BINARY_OP:
+      case NWScriptExpressionType.COMPARISON:
+      case NWScriptExpressionType.LOGICAL:
+      case NWScriptExpressionType.ASSIGNMENT:
+        return this.operator === other.operator &&
+          (this.left?.equals(other.left) ?? other.left == null) &&
+          (this.right?.equals(other.right) ?? other.right == null);
+      case NWScriptExpressionType.UNARY_OP:
+        return this.operator === other.operator &&
+          (this.left?.equals(other.left) ?? other.left == null);
+      case NWScriptExpressionType.FUNCTION_CALL:
+        return this.functionName === other.functionName &&
+          this.sameExpressionList(this.arguments, other.arguments);
+      case NWScriptExpressionType.VECTOR:
+      case NWScriptExpressionType.AGGREGATE:
+        return this.sameExpressionList(this.components, other.components);
+      case NWScriptExpressionType.UNKNOWN:
+        return this.diagnostic === other.diagnostic;
+      default:
+        return false;
+    }
+  }
+
+  private sameExpressionList(left: NWScriptExpression[], right: NWScriptExpression[]): boolean {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++) {
+      if (!left[index].equals(right[index])) return false;
+    }
+    return true;
+  }
+
   private escapeStringLiteral(value: string): string {
     return value
       .replace(/\\/g, '\\\\')

@@ -1590,14 +1590,14 @@ export class NWScriptStackSimulator {
   /** Save stack depth/SP/BP for re-entrant probing (e.g. switch discriminant extraction). */
   takeStackSnapshot(): NWScriptStackSnapshot {
     return {
-      stack: this.stack.map((i) => ({ ...i })),
+      stack: this.stack.slice(),
       stackPointer: this.stackPointer,
       basePointer: this.basePointer,
     };
   }
 
   restoreStackSnapshot(snapshot: NWScriptStackSnapshot): void {
-    this.stack = snapshot.stack.map((i) => ({ ...i }));
+    this.stack = snapshot.stack.slice();
     this.stackPointer = snapshot.stackPointer;
     this.basePointer = snapshot.basePointer;
   }
@@ -1634,7 +1634,7 @@ export class NWScriptStackSimulator {
       const alternatives = snapshots.map(snapshot => snapshot.stack[index]);
       const equivalent = alternatives.every(alternative =>
         alternative.expression.dataType === item.expression.dataType &&
-        alternative.expression.toNSS() === item.expression.toNSS()
+        alternative.expression.equals(item.expression)
       );
       if (equivalent) {
         return { ...item };
@@ -1659,7 +1659,7 @@ export class NWScriptStackSimulator {
 
   private cloneStackSnapshot(snapshot: NWScriptStackSnapshot): NWScriptStackSnapshot {
     return {
-      stack: snapshot.stack.map(item => ({ ...item })),
+      stack: snapshot.stack.slice(),
       stackPointer: snapshot.stackPointer,
       basePointer: snapshot.basePointer,
     };

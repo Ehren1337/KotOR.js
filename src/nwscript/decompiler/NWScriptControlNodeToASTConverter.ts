@@ -161,6 +161,12 @@ export class NWScriptControlNodeToASTConverter {
   /** Prevents emitting the same CFG basic block twice when it appears multiple times in the ControlNode tree. */
   private emittedBasicBlocksInCurrentProcedure: Set<NWScriptBasicBlock> = new Set();
 
+  /** Headers whose BioWare `||` diamond has already been folded for this procedure. */
+  private consumedShortCircuitDiamondHeaders: Set<NWScriptBasicBlock> = new Set();
+
+  /** Guards `convertControlNode` against cyclic ControlNode trees. */
+  private convertingControlNodes: Set<ControlNode> = new Set();
+
   /**
    * Stack state immediately after a structured condition block. Condition extraction runs on a
    * clone so it cannot replay instructions against (and corrupt) the traversal's live stack.
@@ -174,6 +180,8 @@ export class NWScriptControlNodeToASTConverter {
   private functionEntrySnapshots: Map<NWScriptFunction, NWScriptStackSnapshot> = new Map();
   private inferredBlockEntrySnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
   private inferredBlockExitSnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
+  private functionBodyBlocksByFunction: Map<NWScriptFunction, Set<NWScriptBasicBlock>> = new Map();
+  private inferTempSimulator: NWScriptStackSimulator | null = null;
 
   /** Branch expression recovered while the owning basic block was evaluated exactly once. */
   private conditionExpressions: Map<NWScriptBasicBlock, NWScriptExpression> = new Map();
@@ -769,6 +777,15 @@ export class NWScriptControlNodeToASTConverter {
     entry: NWScriptStackSnapshot
   ): NWScriptStackSimulator {
     const simulator = this.createTempStackSimulator(functionContext);
+    this.configureTempStackSimulator(simulator, functionContext, entry);
+    return simulator;
+  }
+
+  private configureTempStackSimulator(
+    simulator: NWScriptStackSimulator,
+    functionContext: NWScriptFunction | null,
+    entry: NWScriptStackSnapshot
+  ): void {
     if (functionContext) {
       simulator.setFunctionParameters(functionContext.parameters);
     }
@@ -791,8 +808,33 @@ export class NWScriptControlNodeToASTConverter {
     simulator.setActionThunkArgumentByActionAddress(
       this.actionThunkArgumentByActionAddress
     );
+    simulator.setJsrCalleeArgSlotsByEntryPc(this.jsrCalleeArgSlotsByEntryPc);
+    simulator.setJsrUserRoutineMetaByEntryPc(this.jsrUserRoutineMetaByEntryPc);
     simulator.restoreStackSnapshot(entry);
-    return simulator;
+  }
+
+  private getFunctionBodyBlocks(functionContext: NWScriptFunction): Set<NWScriptBasicBlock> {
+    let body = this.functionBodyBlocksByFunction.get(functionContext);
+    if (!body) {
+      body = new Set(functionContext.bodyBlocks);
+      this.functionBodyBlocksByFunction.set(functionContext, body);
+    }
+    return body;
+  }
+
+  private simulateBlockExit(
+    functionContext: NWScriptFunction | null,
+    entry: NWScriptStackSnapshot,
+    block: NWScriptBasicBlock
+  ): NWScriptStackSnapshot {
+    if (!this.inferTempSimulator) {
+      this.inferTempSimulator = this.createTempStackSimulator(functionContext);
+    }
+    this.configureTempStackSimulator(this.inferTempSimulator, functionContext, entry);
+    for (const instruction of block.instructions) {
+      this.inferTempSimulator.processInstruction(instruction);
+    }
+    return this.inferTempSimulator.takeStackSnapshot();
   }
 
   private recoverStoreStateThunk(
@@ -1183,6 +1225,8 @@ export class NWScriptControlNodeToASTConverter {
       this.stackSimulator.clear();
       this.functionStackInitialized.delete(functionContext);
       this.emittedBasicBlocksInCurrentProcedure.clear();
+      this.consumedShortCircuitDiamondHeaders.clear();
+      this.convertingControlNodes.clear();
 
       // Initialize variable tracking for this function
       if (!this.functionVariableCounts.has(functionContext)) {
@@ -1225,6 +1269,11 @@ export class NWScriptControlNodeToASTConverter {
     statements: NWScriptASTNode[]
   ): void {
     nwscriptDecompilerDebug(`[ControlNode] Converting ${controlNode.type} node`);
+    if (this.convertingControlNodes.has(controlNode)) {
+      return;
+    }
+    this.convertingControlNodes.add(controlNode);
+    try {
     switch (controlNode.type) {
       case 'basic_block':
         nwscriptDecompilerDebug(`[ControlNode] Processing basic_block node, block ID: ${controlNode.block.id}, instructions: ${controlNode.block.instructions.length}`);
@@ -1247,6 +1296,9 @@ export class NWScriptControlNodeToASTConverter {
             statements
           )
         ) {
+          // The recovered `if` wraps a compiler diamond. Fold the value, then convert
+          // remaining body nodes (the source `if (lhs || rhs)` and anything after it).
+          this.convertControlNode(ifNode.body, functionContext, statements);
           break;
         }
         statements.push(this.convertIfNode(controlNode, functionContext));
@@ -1264,6 +1316,8 @@ export class NWScriptControlNodeToASTConverter {
             statements
           )
         ) {
+          this.convertControlNode(controlNode.thenBody, functionContext, statements);
+          this.convertControlNode(controlNode.elseBody, functionContext, statements);
           break;
         }
         statements.push(this.convertIfElseNode(controlNode, functionContext));
@@ -1293,6 +1347,9 @@ export class NWScriptControlNodeToASTConverter {
           this.convertControlNode(controlNode.nodes[i], functionContext, statements);
         }
         break;
+    }
+    } finally {
+      this.convertingControlNodes.delete(controlNode);
     }
   }
 
@@ -1400,12 +1457,19 @@ export class NWScriptControlNodeToASTConverter {
   /**
    * Consume the two-arm value diamond emitted for `lhs || rhs`. One arm only duplicates lhs;
    * the other evaluates rhs, and the common join starts with LOGORII.
+   *
+   * BioWare nwnnsscomp uses `CPTOPSP; JZ join` on the true arm (a vestigial pop) rather than
+   * `JMP join`. The LOGORII block is left unconverted so the following source `if`/`while`
+   * can combine `[lhs, rhs]` itself.
    */
   private tryConsumeShortCircuitDiamond(
     header: NWScriptBasicBlock,
     functionContext: NWScriptFunction | null,
     statements: NWScriptASTNode[]
   ): boolean {
+    if (this.consumedShortCircuitDiamondHeaders.has(header)) {
+      return false;
+    }
     if (!header.conditionInstruction || header.successors.size !== 2) {
       return false;
     }
@@ -1432,17 +1496,21 @@ export class NWScriptControlNodeToASTConverter {
       return false;
     }
 
+    const joinAddress = join.startInstruction.address;
     const region = new Set<NWScriptBasicBlock>();
     const queue = [...branches];
     while (queue.length > 0) {
       const block = queue.shift()!;
       if (block === join || bypass.has(block) || region.has(block)) continue;
+      if (block.startInstruction.address >= joinAddress) continue;
       region.add(block);
       for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
         if (
           !this.cfg.isBackEdge(block, successor) &&
           !bypass.has(successor) &&
-          !region.has(successor)
+          successor !== join &&
+          !region.has(successor) &&
+          successor.startInstruction.address < joinAddress
         ) {
           queue.push(successor);
         }
@@ -1452,20 +1520,27 @@ export class NWScriptControlNodeToASTConverter {
       this.blockStatements.set(block, []);
       this.emittedBasicBlocksInCurrentProcedure.add(block);
     }
-    const ordered = [...region, join].sort((left, right) =>
+    // Do not convert the LOGORII join here. It is the start of the source-level
+    // `if`/`while` condition (LOGORII then JZ), or the next `||` diamond header.
+    // Leaving `[lhs, rhs]` on the stack lets that later node combine them.
+    const ordered = [...region].sort((left, right) =>
       left.startInstruction.address - right.startInstruction.address
     );
     for (const block of ordered) {
       this.convertBasicBlock({ type: 'basic_block', block }, functionContext, statements);
     }
+    this.consumedShortCircuitDiamondHeaders.add(header);
     return true;
   }
 
   /**
    * Recognize the compiler-only arm of a short-circuit OR diamond. The arm may be
    * split into several basic blocks, but it can only copy the existing boolean value
-   * and jump to the logical join; source expressions and conditional branches rule it
-   * out as a bypass.
+   * and jump to the logical join.
+   *
+   * BioWare nwnnsscomp emits a dummy `CPTOPSP; JZ join` rather than `CPTOPSP; JMP join`.
+   * The JZ is unreachable on that arm (`lhs` is already known to be nonzero), so it is
+   * only a pop of the extra copy; rhs still falls through to LOGORII.
    */
   private findShortCircuitBypass(
     start: NWScriptBasicBlock,
@@ -1476,11 +1551,18 @@ export class NWScriptControlNodeToASTConverter {
     let sawCopy = false;
 
     while (block && block !== join) {
-      if (blocks.has(block) || block.conditionInstruction) return undefined;
+      if (blocks.has(block)) return undefined;
       blocks.add(block);
+
+      const condition = block.conditionInstruction;
+      const isDummyJoinBranch =
+        condition != null &&
+        (condition.code === OP_JZ || condition.code === OP_JNZ) &&
+        this.conditionalJumpTargets(block, condition).includes(join);
 
       for (const instruction of block.instructions) {
         if (instruction.code === OP_JMP) continue;
+        if (isDummyJoinBranch && instruction === condition) continue;
         if (instruction.code !== OP_CPTOPSP && instruction.code !== OP_CPTOPBP) {
           return undefined;
         }
@@ -1489,11 +1571,31 @@ export class NWScriptControlNodeToASTConverter {
 
       const successors = this.cfg.getIntraProceduralSuccessors(block, false)
         .filter(successor => !this.cfg.isBackEdge(block!, successor));
-      if (successors.length !== 1) return undefined;
+      if (isDummyJoinBranch) {
+        return sawCopy ? blocks : undefined;
+      }
+      if (condition || successors.length !== 1) return undefined;
       block = successors[0];
     }
 
     return block === join && sawCopy ? blocks : undefined;
+  }
+
+  private conditionalJumpTargets(
+    block: NWScriptBasicBlock,
+    condition: NWScriptInstruction
+  ): NWScriptBasicBlock[] {
+    const targets: NWScriptBasicBlock[] = [];
+    const taken = this.cfg.getBlockForAddress(
+      condition.address + toSignedInt32(condition.offset)
+    );
+    if (taken) targets.push(taken);
+    for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
+      if (!this.cfg.isBackEdge(block, successor) && !targets.includes(successor)) {
+        targets.push(successor);
+      }
+    }
+    return targets;
   }
 
   private findShortCircuitJoin(
@@ -1501,6 +1603,10 @@ export class NWScriptControlNodeToASTConverter {
     right: NWScriptBasicBlock,
     logicalOpcode: number
   ): NWScriptBasicBlock | undefined {
+    const startsWithLogical = (block: NWScriptBasicBlock): boolean => {
+      const first = block.instructions.find(instruction => instruction.code !== OP_NOP);
+      return first?.code === logicalOpcode;
+    };
     const distances = (start: NWScriptBasicBlock): Map<NWScriptBasicBlock, number> => {
       const result = new Map<NWScriptBasicBlock, number>([[start, 0]]);
       const queue = [start];
@@ -1517,10 +1623,7 @@ export class NWScriptControlNodeToASTConverter {
     const fromLeft = distances(left);
     const fromRight = distances(right);
     return Array.from(fromLeft.keys())
-      .filter(block =>
-        fromRight.has(block) &&
-        block.instructions.some(instruction => instruction.code === logicalOpcode)
-      )
+      .filter(block => fromRight.has(block) && startsWithLogical(block))
       .sort((a, b) =>
         (fromLeft.get(a)! + fromRight.get(a)!) -
         (fromLeft.get(b)! + fromRight.get(b)!)
@@ -1550,7 +1653,7 @@ export class NWScriptControlNodeToASTConverter {
       return this.functionEntrySnapshots.get(functionContext);
     }
 
-    const functionBlocks = new Set(functionContext.bodyBlocks);
+    const functionBlocks = this.getFunctionBodyBlocks(functionContext);
     const incoming = this.cfg.getIntraProceduralPredecessors(block)
       .filter(predecessor =>
         functionBlocks.has(predecessor) &&
@@ -1588,11 +1691,7 @@ export class NWScriptControlNodeToASTConverter {
     try {
       const entry = this.inferBlockEntrySnapshot(block, functionContext, visiting);
       if (!entry) return undefined;
-      const simulator = this.createConfiguredTempStackSimulator(functionContext, entry);
-      for (const instruction of block.instructions) {
-        simulator.processInstruction(instruction);
-      }
-      const exit = simulator.takeStackSnapshot();
+      const exit = this.simulateBlockExit(functionContext, entry, block);
       this.inferredBlockExitSnapshots.set(block, exit);
       return exit;
     } catch {
