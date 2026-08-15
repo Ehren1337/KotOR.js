@@ -20,6 +20,12 @@ import { LYTLanguageService } from "@/apps/forge/states/LYTLanguageService";
 import { TXILanguageService } from "@/apps/forge/states/TXILanguageService";
 import { SemanticFunctionNode } from "@/nwscript/compiler/ASTSemanticTypes";
 import { compileNssSource, resolveIncludesForNss } from "@/apps/forge/helpers/ForgeNWScriptCompile";
+import { NWScriptDecompiler } from "@/nwscript/decompiler/NWScriptDecompiler";
+import {
+  codeOffsetForNssLine,
+  createEmptyNssCodeLineMap,
+  type NssCodeLineMap,
+} from "@/nwscript/inspect/nssCodeLineMap";
 
 export class TabTextEditorState extends TabState {
 
@@ -29,6 +35,9 @@ export class TabTextEditorState extends TabState {
   nwScriptParser: NWScriptParser;
   ncs: Uint8Array = new Uint8Array(0);
   nwScript: KotOR.NWScript;
+  nssLineMap: NssCodeLineMap = createEmptyNssCodeLineMap();
+  recoveredFunctions: Array<{ codeOffset: number; name: string }> = [];
+  revealNcsCodeOffset?: number;
 
   #southTabManager = new EditorTabManager();
   #tabErrorLogState: TabScriptErrorLogState;
@@ -46,6 +55,34 @@ export class TabTextEditorState extends TabState {
   resolvedIncludes: Map<string, string> = new Map();
   tabSize: number = 2;
   manualLanguageId: string | null = null; // Override for manual language selection
+
+  isNcsFile(): boolean {
+    return (this.file?.ext || '').toLowerCase() === 'ncs';
+  }
+
+  applyDecompile(script: KotOR.NWScript): void {
+    const decompiler = new NWScriptDecompiler(script);
+    const result = decompiler.decompileWithLineMap();
+    this.code = result.nss;
+    this.nssLineMap = result.lineMap;
+    this.recoveredFunctions = result.functions;
+  }
+
+  revealNssLine(line: number): void {
+    this.processEventListener('onRevealNss', [line]);
+  }
+
+  revealNcsForLine(line: number): void {
+    const offset = codeOffsetForNssLine(this.nssLineMap, line);
+    if (offset == null) {
+      return;
+    }
+    this.revealNcsCodeOffset = offset;
+    if (!this.isNcsFile()) {
+      this.getSouthTabManager().getTabByType('TabScriptInspectorState')?.show();
+    }
+    this.processEventListener('onRevealNcs', [offset]);
+  }
 
   getLanguageId(): string {
     // Use manual override if set
@@ -127,7 +164,11 @@ export class TabTextEditorState extends TabState {
     this.#tabScriptInspectorState = new TabScriptInspectorState( { parentTab: this } );
     this.#southTabManager.addTab( this.#tabErrorLogState );
     this.#southTabManager.addTab( this.#tabCompileLogState );
-    this.#southTabManager.addTab( this.#tabScriptInspectorState );
+    // An NCS tab owns an inspector drawer beside Monaco. The south inspector is
+    // reserved for compiled NSS files so the same bytecode is never shown twice.
+    if(!this.isNcsFile()){
+      this.#southTabManager.addTab( this.#tabScriptInspectorState );
+    }
 
     this.setContentView(<TabTextEditor tab={this}></TabTextEditor>);
     const textDecoder = new TextDecoder();
@@ -171,8 +212,7 @@ export class TabTextEditorState extends TabState {
             this.ncs = new Uint8Array(bytes);
             this.nwScript = new KotOR.NWScript(this.ncs);
             this.nwScript.name = file?.getFilename().split('.')[0] || '';
-            this.code = this.nwScript.decompile(this.ncs);
-            this.getSouthTabManager().getTabByType('TabScriptInspectorState')?.show();
+            this.applyDecompile(this.nwScript);
             this.triggerLinterTimeout();
             this.processEventListener('onEditorFileLoad');
             resolve();
@@ -428,16 +468,27 @@ export class TabTextEditorState extends TabState {
   }
 
   async getExportBuffer(resref?: string, ext?: string): Promise<Uint8Array> {
+    const kind = (ext || this.file?.ext || '').toLowerCase();
+    if (kind === 'ncs') {
+      return this.ncs?.length ? this.ncs : new Uint8Array(0);
+    }
     this.updateFile();
-    return this.file.buffer ? this.file.buffer : new Uint8Array(0);
+    return this.file.buffer ? this.file.buffer : new TextEncoder().encode(this.code);
   }
 
   updateFile(): void {
     super.updateFile();
-    if(this.file){
+    if(this.file && !this.isNcsFile()){
       this.file.buffer = new TextEncoder().encode(this.code);
       this.file.unsaved_changes = true;
     }
+  }
+
+  async save(): Promise<boolean> {
+    if(this.isNcsFile()){
+      return this.saveAs();
+    }
+    return super.save();
   }
 
   private nwscriptCompiledNcsFileName(): string {
@@ -532,6 +583,10 @@ export class TabTextEditorState extends TabState {
       console.log('AST', ForgeState.nwScriptParser.toJSON());
       console.log('compile', 'compiling...');
       this.ncs = result.ncs;
+      this.nwScript = new KotOR.NWScript(this.ncs);
+      if (this.file?.getFilename) {
+        this.nwScript.name = this.file.getFilename().split('.')[0] || this.nwScript.name;
+      }
       console.log('compile', 'success');
       console.log(this.ncs);
       await this.writeCompiledNcsToDisk(result.ncs);

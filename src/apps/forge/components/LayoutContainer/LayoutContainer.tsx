@@ -47,6 +47,7 @@ export interface LayoutContainerProps {
   southSize?: number;
   eastSize?: number;
   westSize?: number;
+  onEastSizeChange?: (size: number) => void;
   children?: React.ReactNode;
 }
 
@@ -119,6 +120,7 @@ export const LayoutContainer = React.memo<LayoutContainerProps>(function LayoutC
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
     const barSizeHalf = BAR_OPEN_SIZE / 2;
+    const nextEastSize = Math.max(MIN_PANE_SIZE, containerSize.width - (x - barSizeHalf));
 
     setLayoutState(prevState => {
       const newState = { ...prevState };
@@ -134,7 +136,7 @@ export const LayoutContainer = React.memo<LayoutContainerProps>(function LayoutC
           break;
         case 'east':
           if (!hasEastContent || !prevState.eastOpen) return prevState;
-          newState.eastSize = Math.max(MIN_PANE_SIZE, containerSize.width - (x - barSizeHalf));
+          newState.eastSize = nextEastSize;
           break;
         case 'west':
           if (!hasWestContent || !prevState.westOpen) return prevState;
@@ -146,10 +148,13 @@ export const LayoutContainer = React.memo<LayoutContainerProps>(function LayoutC
       
       return newState;
     });
+    if (handle === 'east' && hasEastContent && layoutState.eastOpen) {
+      props.onEastSizeChange?.(nextEastSize);
+    }
 
     // Reset drag start position
     dragStartPos.current = null;
-  }, [hasNorthContent, hasSouthContent, hasEastContent, hasWestContent, containerSize]);
+  }, [hasNorthContent, hasSouthContent, hasEastContent, hasWestContent, containerSize, layoutState.eastOpen, props.onEastSizeChange]);
 
   const onPaneToggle = useCallback((e: React.MouseEvent, handle: string) => {
     e.preventDefault();

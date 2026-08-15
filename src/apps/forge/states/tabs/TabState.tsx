@@ -13,7 +13,7 @@ import { pathParse } from "@/apps/forge/helpers/PathParse";
 declare const dialog: any;
 
 export type TabStateEventListenerTypes =
-  'onTabDestroyed'|'onTabRemoved'|'onTabShow'|'onTabHide'|'onTabNameChange'|'onEditorFileLoad'|'onEditorFileChange'|'onEditorFileSaved'|'onKeyDown'|'onKeyUp'|'onUndoApplied'|'onRedoApplied';
+  'onTabDestroyed'|'onTabRemoved'|'onTabShow'|'onTabHide'|'onTabNameChange'|'onEditorFileLoad'|'onEditorFileChange'|'onEditorFileSaved'|'onKeyDown'|'onKeyUp'|'onUndoApplied'|'onRedoApplied'|'onCompile'|'onDiffModeChanged'|'onRevealNss'|'onRevealNcs';
 
 export interface TabStateEventListeners {
   onTabDestroyed: Function[],

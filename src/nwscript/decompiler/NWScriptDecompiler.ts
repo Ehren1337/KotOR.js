@@ -17,11 +17,23 @@ import {
 } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
 import { applyNwscriptDecompilerCleanup } from "@/nwscript/decompiler/NWScriptDecompilerCleanupPass";
 import { collectJsrReturnReservationAddresses } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
+import {
+  createEmptyNssCodeLineMap,
+  shiftNssCodeLineMap,
+  type NssCodeLineMap,
+} from "@/nwscript/inspect/nssCodeLineMap";
 
 /** Result of {@link NWScriptDecompiler.buildProgramAst} (phases through AST + cleanup, no NSS emit). */
 export type NWScriptBuildProgramAstResult =
   | { ok: true; ast: NWScriptProgramNode }
   | { ok: false; error: string };
+
+/** Result of {@link NWScriptDecompiler.decompileWithLineMap}. */
+export type NWScriptDecompileResult = {
+  nss: string;
+  lineMap: NssCodeLineMap;
+  functions: Array<{ codeOffset: number; name: string }>;
+};
 
 /**
  * Main decompiler orchestrator.
@@ -75,31 +87,49 @@ export class NWScriptDecompiler {
   }
 
   decompile(): string {
+    return this.decompileWithLineMap().nss;
+  }
+
+  decompileWithLineMap(): NWScriptDecompileResult {
     const astResult = this.buildProgramAst();
     if (astResult.ok === false) {
+      let nss = `// Error during decompilation: ${astResult.error}`;
       if (astResult.error === "No instructions found") {
-        return "// Error: No instructions found";
+        nss = "// Error: No instructions found";
+      } else if (astResult.error === "No entry block found") {
+        nss = "// Error: No entry block found";
       }
-      if (astResult.error === "No entry block found") {
-        return "// Error: No entry block found";
-      }
-      return `// Error during decompilation: ${astResult.error}`;
+      return { nss, lineMap: createEmptyNssCodeLineMap(), functions: [] };
     }
 
     try {
       nwscriptDecompilerDebug("Generating NSS source code...");
-      const codegenMs = this.measurePhase('codegen', () => {
+      const result = this.measurePhase('codegen', () => {
         this.codeGenerator = new NWScriptASTCodeGenerator();
         const nssSource = this.codeGenerator.generate(astResult.ast);
         const header = this.generateHeader();
-        return header + '\n\n' + nssSource;
+        const prefix = header + '\n\n';
+        const lineDelta = prefix.split('\n').length - 1;
+        const nss = prefix + nssSource;
+        const lineMap = shiftNssCodeLineMap(this.codeGenerator.lastLineMap, lineDelta);
+        const functions = astResult.ast.functions
+          .filter((func) => func.location?.startAddress != null)
+          .map((func) => ({
+            codeOffset: func.location!.startAddress as number,
+            name: func.name,
+          }));
+        return { nss, lineMap, functions };
       });
       this.finishProfile();
-      return codegenMs;
+      return result;
     } catch (error) {
       console.error('Decompilation error:', error);
       this.finishProfile();
-      return `// Error during decompilation: ${error instanceof Error ? error.message : String(error)}`;
+      return {
+        nss: `// Error during decompilation: ${error instanceof Error ? error.message : String(error)}`,
+        lineMap: createEmptyNssCodeLineMap(),
+        functions: [],
+      };
     }
   }
 

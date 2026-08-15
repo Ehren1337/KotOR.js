@@ -1,14 +1,24 @@
-import type { NWScriptASTNode, NWScriptProgramNode, NWScriptFunctionNode, NWScriptBlockNode, NWScriptIfNode, NWScriptIfElseNode, NWScriptWhileNode, NWScriptDoWhileNode, NWScriptForNode, NWScriptExpressionStatementNode, NWScriptAssignmentNode, NWScriptReturnNode, NWScriptVariableDeclarationNode, NWScriptGlobalVariableDeclarationNode, NWScriptSwitchNode, NWScriptSwitchCaseNode } from "@/nwscript/decompiler/NWScriptAST";
+import type { NWScriptASTNode, NWScriptProgramNode, NWScriptFunctionNode, NWScriptBlockNode, NWScriptIfNode, NWScriptIfElseNode, NWScriptWhileNode, NWScriptDoWhileNode, NWScriptForNode, NWScriptExpressionStatementNode, NWScriptAssignmentNode, NWScriptReturnNode, NWScriptVariableDeclarationNode, NWScriptGlobalVariableDeclarationNode, NWScriptSwitchNode } from "@/nwscript/decompiler/NWScriptAST";
 import { NWScriptASTNodeType } from "@/nwscript/decompiler/NWScriptAST";
 import type { NWScriptExpression } from "@/nwscript/decompiler/NWScriptExpression";
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
+import {
+  createEmptyNssCodeLineMap,
+  stampNssCodeLine,
+  type NssCodeLineMap,
+} from "@/nwscript/inspect/nssCodeLineMap";
+
+interface MappedNssLine {
+  text: string;
+  address?: number;
+}
 
 /**
  * Generates NSS source code from an Abstract Syntax Tree.
  * This is the final step in the decompilation pipeline.
- * 
+ *
  * KotOR JS - A remake of the Odyssey Game Engine that powered KotOR I & II
- * 
+ *
  * @file NWScriptASTCodeGenerator.ts
  * @author KobaltBlu <https://github.com/KobaltBlu>
  * @license {@link https://www.gnu.org/licenses/gpl-3.0.txt|GPLv3}
@@ -17,18 +27,22 @@ export class NWScriptASTCodeGenerator {
   private indentLevel: number = 0;
   private indentString: string = '    '; // 4 spaces
 
+  /** 1-based NSS lines from the last {@link generate} call (body only, no decompiler header). */
+  lastLineMap: NssCodeLineMap = createEmptyNssCodeLineMap();
+
   /**
    * Generate NSS source code from an AST
    */
   generate(ast: NWScriptProgramNode): string {
-    const lines: string[] = [];
+    const lines: MappedNssLine[] = [];
+    this.lastLineMap = createEmptyNssCodeLineMap();
 
     for (const struct of ast.structs) {
-      lines.push(`struct ${struct.name} {`);
+      lines.push({ text: `struct ${struct.name} {` });
       for (const field of struct.fields) {
-        lines.push(`${this.indentString}${this.getTypeName(field.type)} ${field.name};`);
+        lines.push({ text: `${this.indentString}${this.getTypeName(field.type)} ${field.name};` });
       }
-      lines.push('};', '');
+      lines.push({ text: '};' }, { text: '' });
     }
 
     // NCS stores routines by address and permits forward calls; NSS requires a
@@ -39,26 +53,29 @@ export class NWScriptASTCodeGenerator {
       func.name !== 'main' && func.name !== 'StartingConditional'
     );
     for (const func of helpers) {
-      lines.push(`${this.generateFunctionSignature(func)};`);
+      lines.push({ text: `${this.generateFunctionSignature(func)};` });
     }
     if (helpers.length > 0) {
-      lines.push('');
+      lines.push({ text: '' });
     }
 
     // Generate global variable declarations after prototypes: NWScript permits a global
     // initializer to call a user routine, but requires that routine to be declared first.
     for (const global of ast.globals) {
-      lines.push(this.generateGlobalVariableDeclaration(global));
+      lines.push({
+        text: this.generateGlobalVariableDeclaration(global),
+        address: global.location?.startAddress,
+      });
     }
 
     if (ast.globals.length > 0) {
-      lines.push(''); // Blank line after globals
+      lines.push({ text: '' }); // Blank line after globals
     }
 
     // Generate function definitions
     for (const func of ast.functions) {
       lines.push(...this.generateFunction(func));
-      lines.push(''); // Blank line after function
+      lines.push({ text: '' }); // Blank line after function
     }
 
     // Generate main body (if present)
@@ -66,7 +83,11 @@ export class NWScriptASTCodeGenerator {
       lines.push(...this.generateBlock(ast.mainBody));
     }
 
-    return lines.join('\n');
+    for (let i = 0; i < lines.length; i++) {
+      stampNssCodeLine(this.lastLineMap, i + 1, lines[i].address);
+    }
+
+    return lines.map((line) => line.text).join('\n');
   }
 
   /**
@@ -75,7 +96,7 @@ export class NWScriptASTCodeGenerator {
   private generateGlobalVariableDeclaration(decl: NWScriptGlobalVariableDeclarationNode): string {
     const typeName = this.getTypeName(decl.dataType, decl.structName);
     const name = decl.name;
-    
+
     if (decl.initializer) {
       return `${typeName} ${name} = ${decl.initializer.toNSS()};`;
     } else {
@@ -86,31 +107,37 @@ export class NWScriptASTCodeGenerator {
   /**
    * Generate function definition
    */
-  private generateFunction(func: NWScriptFunctionNode): string[] {
-    const lines: string[] = [];
+  private generateFunction(func: NWScriptFunctionNode): MappedNssLine[] {
+    const lines: MappedNssLine[] = [];
 
-    // Function signature
-    lines.push(this.generateFunctionSignature(func));
-    lines.push('{');
+    lines.push({
+      text: this.generateFunctionSignature(func),
+      address: func.location?.startAddress,
+    });
+    lines.push({ text: '{' });
 
-    // Local variable declarations
     this.indentLevel++;
     for (const local of func.locals) {
-      lines.push(this.indent() + this.generateVariableDeclaration(local));
+      lines.push({
+        text: this.indent() + this.generateVariableDeclaration(local),
+        address: local.location?.startAddress,
+      });
     }
 
     if (func.locals.length > 0) {
-      lines.push(''); // Blank line after locals
+      lines.push({ text: '' });
     }
 
-    // Function body
     const bodyLines = this.generateBlock(func.body);
     if (bodyLines.length > 0) {
-      lines.push(...bodyLines.map(line => this.indent() + line));
+      lines.push(...bodyLines.map((line) => ({
+        ...line,
+        text: this.indent() + line.text,
+      })));
     }
 
     this.indentLevel--;
-    lines.push('}');
+    lines.push({ text: '}' });
 
     return lines;
   }
@@ -131,7 +158,7 @@ export class NWScriptASTCodeGenerator {
   private generateVariableDeclaration(decl: NWScriptVariableDeclarationNode): string {
     const typeName = this.getTypeName(decl.dataType, decl.structName);
     const name = decl.name;
-    
+
     if (decl.initializer) {
       return `${typeName} ${name} = ${decl.initializer.toNSS()};`;
     } else {
@@ -142,17 +169,15 @@ export class NWScriptASTCodeGenerator {
   /**
    * Generate block
    */
-  private generateBlock(block: NWScriptBlockNode): string[] {
-    const lines: string[] = [];
+  private generateBlock(block: NWScriptBlockNode): MappedNssLine[] {
+    const lines: MappedNssLine[] = [];
 
     if (block.statements.length === 0) {
-      // Empty block
       return lines;
     }
 
     for (const statement of block.statements) {
-      const stmtLines = this.generateStatement(statement);
-      lines.push(...stmtLines);
+      lines.push(...this.generateStatement(statement));
     }
 
     return lines;
@@ -161,72 +186,72 @@ export class NWScriptASTCodeGenerator {
   /**
    * Generate statement
    */
-  private generateStatement(node: NWScriptASTNode): string[] {
-    const lines: string[] = [];
+  private generateStatement(node: NWScriptASTNode): MappedNssLine[] {
+    const stamp = (textLines: string[], address?: number): MappedNssLine[] =>
+      textLines.map((text, index) => ({
+        text,
+        address: index === 0 ? address : undefined,
+      }));
+
+    const address = node.location?.startAddress;
 
     switch (node.type) {
       case NWScriptASTNodeType.EXPRESSION_STATEMENT:
-        lines.push(this.generateExpressionStatement(node as NWScriptExpressionStatementNode));
-        break;
+        return stamp([this.generateExpressionStatement(node as NWScriptExpressionStatementNode)], address);
 
       case NWScriptASTNodeType.ASSIGNMENT:
-        lines.push(this.generateAssignment(node as NWScriptAssignmentNode));
-        break;
+        return stamp([this.generateAssignment(node as NWScriptAssignmentNode)], address);
 
       case NWScriptASTNodeType.RETURN:
-        lines.push(this.generateReturn(node as NWScriptReturnNode));
-        break;
+        return stamp([this.generateReturn(node as NWScriptReturnNode)], address);
 
       case NWScriptASTNodeType.IF:
-        lines.push(...this.generateIf(node as NWScriptIfNode));
-        break;
+        return this.withLeadingAddress(this.generateIf(node as NWScriptIfNode), address);
 
       case NWScriptASTNodeType.IF_ELSE:
-        lines.push(...this.generateIfElse(node as NWScriptIfElseNode));
-        break;
+        return this.withLeadingAddress(this.generateIfElse(node as NWScriptIfElseNode), address);
 
       case NWScriptASTNodeType.WHILE:
-        lines.push(...this.generateWhile(node as NWScriptWhileNode));
-        break;
+        return this.withLeadingAddress(this.generateWhile(node as NWScriptWhileNode), address);
 
       case NWScriptASTNodeType.DO_WHILE:
-        lines.push(...this.generateDoWhile(node as NWScriptDoWhileNode));
-        break;
+        return this.withLeadingAddress(this.generateDoWhile(node as NWScriptDoWhileNode), address);
 
       case NWScriptASTNodeType.FOR:
-        lines.push(...this.generateFor(node as NWScriptForNode));
-        break;
+        return this.withLeadingAddress(this.generateFor(node as NWScriptForNode), address);
 
       case NWScriptASTNodeType.BREAK:
-        lines.push('break;');
-        break;
+        return stamp(['break;'], address);
 
       case NWScriptASTNodeType.CONTINUE:
-        lines.push('continue;');
-        break;
+        return stamp(['continue;'], address);
 
       case NWScriptASTNodeType.SWITCH:
-        lines.push(...this.generateSwitch(node as NWScriptSwitchNode));
-        break;
+        return this.withLeadingAddress(this.generateSwitch(node as NWScriptSwitchNode), address);
 
       case NWScriptASTNodeType.EMPTY:
-        break;
+        return [];
 
       case NWScriptASTNodeType.BLOCK:
-        lines.push(...this.generateBlock(node as NWScriptBlockNode));
-        break;
+        return this.generateBlock(node as NWScriptBlockNode);
 
       case NWScriptASTNodeType.SWITCH_CASE:
       case NWScriptASTNodeType.SWITCH_DEFAULT:
-        lines.push(`// misplaced ${node.type} node`);
-        break;
+        return stamp([`// misplaced ${node.type} node`], address);
 
       default:
-        lines.push('// Unknown statement type: ' + node.type);
-        break;
+        return stamp(['// Unknown statement type: ' + node.type], address);
     }
+  }
 
-    return lines;
+  private withLeadingAddress(lines: MappedNssLine[], address?: number): MappedNssLine[] {
+    if (!lines.length || address == null) {
+      return lines;
+    }
+    if (lines[0].address != null) {
+      return lines;
+    }
+    return [{ ...lines[0], address }, ...lines.slice(1)];
   }
 
   /**
@@ -258,114 +283,111 @@ export class NWScriptASTCodeGenerator {
   /**
    * Generate if statement
    */
-  private generateIf(ifNode: NWScriptIfNode): string[] {
-    const lines: string[] = [];
+  private generateIf(ifNode: NWScriptIfNode): MappedNssLine[] {
     const condition = ifNode.condition.toNSS();
-    
-    lines.push(`if (${condition})`);
-    lines.push('{');
-    lines.push(...this.nestLines(this.generateBlock(ifNode.thenBody), true));
-    lines.push('}');
-    
-    return lines;
+    return [
+      { text: `if (${condition})`, address: ifNode.location?.startAddress },
+      { text: '{' },
+      ...this.nestMapped(this.generateBlock(ifNode.thenBody), true),
+      { text: '}' },
+    ];
   }
 
   /**
    * Generate if-else statement
    */
-  private generateIfElse(ifElseNode: NWScriptIfElseNode): string[] {
-    const lines: string[] = [];
+  private generateIfElse(ifElseNode: NWScriptIfElseNode): MappedNssLine[] {
     const condition = ifElseNode.condition.toNSS();
-    
-    lines.push(`if (${condition})`);
-    lines.push('{');
-    lines.push(...this.nestLines(this.generateBlock(ifElseNode.thenBody), true));
-    lines.push('}');
-    lines.push('else');
-    lines.push('{');
-    lines.push(...this.nestLines(this.generateBlock(ifElseNode.elseBody), true));
-    lines.push('}');
-    
-    return lines;
+    return [
+      { text: `if (${condition})`, address: ifElseNode.location?.startAddress },
+      { text: '{' },
+      ...this.nestMapped(this.generateBlock(ifElseNode.thenBody), true),
+      { text: '}' },
+      { text: 'else' },
+      { text: '{' },
+      ...this.nestMapped(this.generateBlock(ifElseNode.elseBody), true),
+      { text: '}' },
+    ];
   }
 
   /**
    * Generate while loop
    */
-  private generateWhile(whileNode: NWScriptWhileNode): string[] {
-    const lines: string[] = [];
+  private generateWhile(whileNode: NWScriptWhileNode): MappedNssLine[] {
     const condition = whileNode.condition.toNSS();
-    
-    lines.push(`while (${condition})`);
-    lines.push('{');
-    lines.push(...this.nestLines(this.generateBlock(whileNode.body), true));
-    lines.push('}');
-    
-    return lines;
+    return [
+      { text: `while (${condition})`, address: whileNode.location?.startAddress },
+      { text: '{' },
+      ...this.nestMapped(this.generateBlock(whileNode.body), true),
+      { text: '}' },
+    ];
   }
 
   /**
    * Generate do-while loop
    */
-  private generateDoWhile(doWhileNode: NWScriptDoWhileNode): string[] {
-    const lines: string[] = [];
+  private generateDoWhile(doWhileNode: NWScriptDoWhileNode): MappedNssLine[] {
     const condition = doWhileNode.condition.toNSS();
-    
-    lines.push('do');
-    lines.push('{');
-    lines.push(...this.nestLines(this.generateBlock(doWhileNode.body), true));
-    lines.push(`} while (${condition});`);
-    
-    return lines;
+    return [
+      { text: 'do', address: doWhileNode.location?.startAddress },
+      { text: '{' },
+      ...this.nestMapped(this.generateBlock(doWhileNode.body), true),
+      { text: `} while (${condition});` },
+    ];
   }
 
   /**
    * Generate for loop
    */
-  private generateFor(forNode: NWScriptForNode): string[] {
-    const lines: string[] = [];
-    
+  private generateFor(forNode: NWScriptForNode): MappedNssLine[] {
     let init = '';
     if (forNode.init) {
       const initLines = this.generateStatement(forNode.init);
       if (initLines.length > 0) {
-        init = initLines[0].replace(/;$/, ''); // Remove trailing semicolon
+        init = initLines[0].text.replace(/;$/, '');
       }
     }
-    
+
     const condition = forNode.condition ? forNode.condition.toNSS() : '';
-    
+
     let increment = '';
     if (forNode.increment) {
       const incLines = this.generateStatement(forNode.increment);
       if (incLines.length > 0) {
-        increment = incLines[0].replace(/;$/, ''); // Remove trailing semicolon
+        increment = incLines[0].text.replace(/;$/, '');
       }
     }
-    
-    lines.push(`for (${init}; ${condition}; ${increment})`);
-    lines.push('{');
-    lines.push(...this.nestLines(this.generateBlock(forNode.body), true));
-    lines.push('}');
-    
-    return lines;
+
+    return [
+      { text: `for (${init}; ${condition}; ${increment})`, address: forNode.location?.startAddress },
+      { text: '{' },
+      ...this.nestMapped(this.generateBlock(forNode.body), true),
+      { text: '}' },
+    ];
   }
 
-  private generateSwitch(switchNode: NWScriptSwitchNode): string[] {
-    const lines: string[] = [];
-    lines.push(`switch (${switchNode.expression.toNSS()})`);
-    lines.push('{');
+  private generateSwitch(switchNode: NWScriptSwitchNode): MappedNssLine[] {
+    const lines: MappedNssLine[] = [
+      { text: `switch (${switchNode.expression.toNSS()})`, address: switchNode.location?.startAddress },
+      { text: '{' },
+    ];
 
     for (const c of switchNode.cases) {
-      lines.push(`${this.indentString}case ${c.value.toNSS()}:`);
-      lines.push(...this.nestLines(this.nestLines(this.generateBlock(c.body))));
+      lines.push({
+        text: `${this.indentString}case ${c.value.toNSS()}:`,
+        address: c.location?.startAddress,
+      });
+      lines.push(...this.nestMapped(this.nestMapped(this.generateBlock(c.body))));
     }
     if (switchNode.defaultCase) {
-      lines.push(`${this.indentString}default:`);
-      lines.push(...this.nestLines(this.nestLines(this.generateBlock(switchNode.defaultCase.body))));
+      lines.push({
+        text: `${this.indentString}default:`,
+        address: switchNode.defaultCase.location?.startAddress,
+      });
+      lines.push(...this.nestMapped(this.nestMapped(this.generateBlock(switchNode.defaultCase.body))));
     }
 
-    lines.push('}');
+    lines.push({ text: '}' });
     return lines;
   }
 
@@ -405,11 +427,11 @@ export class NWScriptASTCodeGenerator {
    * Prefix nested block lines by one indent. Nested control structures return
    * unindented lines, so a global indent counter would double-space them.
    */
-  private nestLines(bodyLines: string[], emptyComment = false): string[] {
+  private nestMapped(bodyLines: MappedNssLine[], emptyComment = false): MappedNssLine[] {
     if (bodyLines.length > 0) {
-      return bodyLines.map(line => this.indentString + line);
+      return bodyLines.map((line) => ({ ...line, text: this.indentString + line.text }));
     }
-    return emptyComment ? [this.indentString + '// Empty'] : [];
+    return emptyComment ? [{ text: this.indentString + '// Empty' }] : [];
   }
 
   /**
