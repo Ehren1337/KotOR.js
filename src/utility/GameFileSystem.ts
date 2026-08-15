@@ -93,13 +93,18 @@ export class GameFileSystem {
       
       if(!(output instanceof Uint8Array)) throw new Error('No output buffer supplied!');
 
-      const file = await handle.getFile();
+      let file = GameFileSystem.fileSnapshotCache.get(handle);
+      if(!file){
+        file = await handle.getFile();
+        if(file){
+          GameFileSystem.fileSnapshotCache.set(handle, file);
+        }
+      }
       if(!file) throw new Error('Failed to read file from handle!');
 
-      let blob = await file.slice(position, position + length);
+      let blob = file.slice(position, position + length);
       let arrayBuffer = await blob.arrayBuffer();
       output.set(new Uint8Array(arrayBuffer), offset);
-      // output.copy(new Uint8Array(arrayBuffer));
     }
   }
 
@@ -579,6 +584,7 @@ export class GameFileSystem {
 
   static directoryCache: Map<string, FileSystemDirectoryHandle> = new Map();
   static directoryInflight: Map<string, Promise<FileSystemDirectoryHandle>> = new Map();
+  private static fileSnapshotCache = new WeakMap<FileSystemFileHandle, File>();
 
   private static async resolveFilePathDirectoryHandle(filepath: string): Promise<FileSystemDirectoryHandle> {
     if(ApplicationProfile.directoryHandle){

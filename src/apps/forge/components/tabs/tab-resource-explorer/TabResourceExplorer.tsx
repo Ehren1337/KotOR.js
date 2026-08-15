@@ -9,7 +9,7 @@ import { FileBrowserNode } from "@/apps/forge/FileBrowserNode";
 import { ForgeTreeView } from "@/apps/forge/components/treeview/ForgeTreeView";
 import { ResourceListNode } from "@/apps/forge/components/treeview/ResourceListNode";
 import { useContextMenu, ContextMenuItem } from "@/apps/forge/components/common/ContextMenu";
-import { promptForDirectory, fileExists, writeFile } from "@/apps/forge/helpers/AssetExtraction";
+import { promptForDirectory, fileExists, writeFile, ArchiveReadCache, createThrottledProgress, createConcurrencyGate, WRITE_CONCURRENCY } from "@/apps/forge/helpers/AssetExtraction";
 import { createProgressModal, showExtractionResults } from "@/apps/forge/helpers/AssetExtraction";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { TabGFFEditorState, TabSSFEditorState, TabTLKEditorState } from "@/apps/forge/states/tabs";
@@ -71,12 +71,18 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
     const failedFiles: string[] = [];
     const progressModal = createProgressModal();
     const total = entries.length;
+    const progress = createThrottledProgress((current, tot, message) => {
+      progressModal.setProgress(current, tot, message);
+    });
+    const writeGate = createConcurrencyGate(WRITE_CONCURRENCY);
+    const pendingWrites: Promise<void>[] = [];
+    const archiveCache = new ArchiveReadCache();
 
     try {
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const current = i + 1;
-        progressModal.setProgress(current, total, `Exporting: ${entry.relativePath}`);
+        progress(current, total, `Exporting: ${entry.relativePath}`);
         try {
           const exists = await fileExists(entry.relativePath, target);
           if (exists) {
@@ -84,25 +90,33 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
             continue;
           }
 
-          const editorFile = new EditorFile({
-            path: entry.path,
-            useGameFileSystem: true,
-            trackRecent: false,
-          });
-          const response = await editorFile.readFile();
-          if (!response?.buffer?.length) {
+          const buffer = await archiveCache.read(entry.path);
+          if (!buffer?.length) {
             failedFiles.push(entry.relativePath);
             continue;
           }
 
-          await writeFile(entry.relativePath, response.buffer, target);
-          exportedFiles.push(entry.relativePath);
+          await writeGate.acquire();
+          pendingWrites.push((async () => {
+            try {
+              await writeFile(entry.relativePath, buffer, target);
+              exportedFiles.push(entry.relativePath);
+            } catch (e) {
+              console.error('Resource export failed for', entry.relativePath, e);
+              failedFiles.push(entry.relativePath);
+            } finally {
+              writeGate.release();
+            }
+          })());
         } catch (e) {
           console.error('Resource export failed for', entry.relativePath, e);
           failedFiles.push(entry.relativePath);
         }
       }
+      await Promise.all(pendingWrites);
     } finally {
+      progress.flush();
+      await archiveCache.dispose();
       showExtractionResults({
         modelName: defaultName,
         modelCount: 0,
