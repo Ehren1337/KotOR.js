@@ -24,6 +24,7 @@ import { TabSSFEditorState } from "@/apps/forge/states/tabs/TabSSFEditorState";
 import { TabTextEditorState } from "@/apps/forge/states/tabs/TabTextEditorState";
 import { TabTwoDAEditorState } from "@/apps/forge/states/tabs/TabTwoDAEditorState";
 import { TabUTCEditorState } from "@/apps/forge/states/tabs/TabUTCEditorState";
+import { TabDLGEditorState } from "@/apps/forge/states/tabs/TabDLGEditorState";
 import { TabUTDEditorState } from "@/apps/forge/states/tabs/TabUTDEditorState";
 import { TabUTEEditorState } from "@/apps/forge/states/tabs/TabUTEEditorState";
 import { TabUTIEditorState } from "@/apps/forge/states/tabs/TabUTIEditorState";
@@ -243,6 +244,14 @@ export function registerForgeCommands(): void {
     category: "File",
     keywords: ["script", "nss"],
     run: () => addUntitled(TabTextEditorState, "untitled", KotOR.ResourceTypes.nss),
+  });
+
+  registerCommand({
+    id: "forge.file.new.dlg",
+    title: "New Conversation (.dlg)",
+    category: "File",
+    keywords: ["dialog", "dialogue", "conversation", "dlg"],
+    run: () => addUntitled(TabDLGEditorState, "new_conversation", KotOR.ResourceTypes.dlg),
   });
 
   registerCommand({

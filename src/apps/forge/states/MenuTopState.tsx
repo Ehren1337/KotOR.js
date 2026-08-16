@@ -130,6 +130,7 @@ export class MenuTopState {
               { header: true, label: 'Engine Resource' },
               this.commandItem('forge.file.new.lip', { label: 'Lip Sync File (.lip)' }),
               this.commandItem('forge.file.new.nss', { label: 'NWScript Source File' }),
+              this.commandItem('forge.file.new.dlg', { label: 'Conversation (.dlg)' }),
               { header: true, label: 'Blueprints' },
               this.commandItem('forge.file.new.utc', { label: '.UTC - Creature' }),
               this.commandItem('forge.file.new.utd', { label: '.UTD - Door' }),

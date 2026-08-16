@@ -43,7 +43,7 @@ export const FILE_TYPE_EDITOR_GROUPS: FileTypeEditorGroup[] = [
       { ext: "are", label: "Area (ARE)", editors: ["native", "hex", "text"] },
       { ext: "git", label: "Area instances (GIT)", editors: ["native", "hex", "text"] },
       { ext: "ifo", label: "Module info (IFO)", editors: ["native", "hex", "text"] },
-      { ext: "dlg", label: "Dialogue (DLG)", editors: ["native", "hex", "text"] },
+      { ext: "dlg", label: "Dialogue (DLG)", editors: ["native", "gff", "hex"] },
       { ext: "jrl", label: "Journal (JRL)", editors: ["native", "hex", "text"] },
       { ext: "fac", label: "Faction (FAC)", editors: ["native", "hex", "text"] },
       { ext: "bic", label: "Character (BIC)", editors: ["native", "hex", "text"] },

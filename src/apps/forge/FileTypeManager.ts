@@ -3,7 +3,7 @@ import { EditorFileOptions } from "@/apps/forge/interfaces/EditorFileOptions";
 import { AudioPlayerState } from "@/apps/forge/states/AudioPlayerState";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { 
-  TabBIKPlayerState, TabERFEditorState, TabGFFEditorState, TabGUIEditorState, TabHexEditorState, TabImageViewerState, TabLIPEditorState, TabLYTEditorState, TabModelViewerState, TabPTHEditorState, TabSSFEditorState, TabTextEditorState, TabTLKEditorState, TabTwoDAEditorState, TabUTCEditorState, 
+  TabBIKPlayerState, TabDLGEditorState, TabERFEditorState, TabGFFEditorState, TabGUIEditorState, TabHexEditorState, TabImageViewerState, TabLIPEditorState, TabLYTEditorState, TabModelViewerState, TabPTHEditorState, TabSSFEditorState, TabTextEditorState, TabTLKEditorState, TabTwoDAEditorState, TabUTCEditorState, 
   TabUTDEditorState, TabUTEEditorState, TabUTIEditorState, TabUTMEditorState, TabUTPEditorState, TabUTSEditorState, TabUTTEditorState, TabUTWEditorState, TabWOKEditorState 
 } from "@/apps/forge/states/tabs";
 import { ResourceTypes } from "@/KotOR";
@@ -102,6 +102,8 @@ export class FileTypeManager {
         ForgeState.tabManager.addTab(new TabTLKEditorState({editorFile: res}));
       break;
       case 'dlg':
+        ForgeState.tabManager.addTab(new TabDLGEditorState({editorFile: res}));
+      break;
       case 'bic':
       case 'jrl':
       case 'ifo':
