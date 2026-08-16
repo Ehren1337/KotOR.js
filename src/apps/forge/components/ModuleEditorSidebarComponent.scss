@@ -90,9 +90,9 @@
 .property-editor-browse-button {
   padding: 2px 6px!important;
   font-size: 12px!important;
-  background-color: #444!important;
-  border: 1px solid #666!important;
-  color: #fff!important;
+  background-color: var(--forge-bg-elevated)!important;
+  border: 1px solid var(--forge-border)!important;
+  color: var(--forge-text)!important;
   border-radius: 2px!important;
   cursor: pointer!important;
   white-space: nowrap!important;
@@ -103,7 +103,8 @@
   height: 22px!important;
 
   &:hover {
-    background-color: #555;
+    background-color: var(--forge-bg-hover);
+    color: var(--forge-text-bright);
   }
 }
 

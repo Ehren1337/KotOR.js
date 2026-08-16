@@ -161,3 +161,38 @@ a {
 .p-2 { padding: 8px; }
 .small { font-size: var(--forge-font-size-sm); }
 .font-weight-bold { font-weight: 600; }
+
+button:where(:not(.forge-titlebar__btn)) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 2px 8px;
+  font-size: var(--forge-font-size);
+  font-family: inherit;
+  line-height: 1.2;
+  color: var(--forge-text);
+  background: var(--forge-bg-elevated);
+  border: 1px solid var(--forge-border);
+  border-radius: var(--forge-radius);
+  cursor: pointer;
+  user-select: none;
+  text-shadow: none;
+  white-space: nowrap;
+
+  &:hover:where(:not(:disabled)) {
+    background: var(--forge-bg-hover);
+    border-color: var(--forge-text-muted);
+    color: var(--forge-text-bright);
+  }
+
+  &:active:where(:not(:disabled)) {
+    background: var(--forge-bg-active);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}

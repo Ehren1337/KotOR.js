@@ -16,8 +16,8 @@
     gap: 0.3rem;
     min-height: 34px;
     padding: 0.2rem 0.35rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-    background: #1b1f23;
+    border-bottom: 1px solid var(--forge-border);
+    background: var(--forge-bg-elevated);
     flex: 0 0 auto;
     position: sticky;
     top: 0;
@@ -26,6 +26,15 @@
     .btn {
       white-space: nowrap;
       padding: 0.12rem 0.42rem;
+      color: var(--forge-text);
+      background: var(--forge-bg-elevated);
+      border: 1px solid var(--forge-border);
+
+      &:hover:not(:disabled) {
+        background: var(--forge-bg-hover);
+        border-color: var(--forge-text-muted);
+        color: var(--forge-text-bright);
+      }
     }
   }
 
@@ -37,9 +46,9 @@
   &__search {
     min-width: 7rem;
     flex: 1 1 10rem;
-    background: #1a1a1a;
+    background: var(--forge-bg-elevated);
     color: inherit;
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    border: 1px solid var(--forge-border);
     border-radius: 3px;
     padding: 0.1rem 0.4rem;
   }
@@ -55,7 +64,7 @@
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
-    background: #202428;
+    background: var(--forge-bg);
   }
 
   &__asm,
@@ -75,20 +84,20 @@
   }
 
   &__hex {
-    border-left: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: 1px solid var(--forge-border);
   }
 
   &__functions {
     flex: 0 0 10rem;
-    border-left: 1px solid rgba(255, 255, 255, 0.12);
+    border-left: 1px solid var(--forge-border);
     padding: 0.3rem;
-    background: #1b1f23;
+    background: var(--forge-bg-elevated);
   }
 
   &__functions-title {
     font-weight: 600;
     margin-bottom: 0.25rem;
-    color: #9aa0a6;
+    color: var(--forge-text-muted);
   }
 
   &__function {
@@ -103,7 +112,7 @@
     cursor: pointer;
 
     &--active {
-      background: rgba(18, 142, 199, 0.38);
+      background: var(--forge-accent-muted);
     }
   }
 
@@ -120,8 +129,8 @@
     cursor: pointer;
 
     &--active {
-      background: rgba(18, 142, 199, 0.3);
-      box-shadow: inset 2px 0 #128ec7;
+      background: var(--forge-accent-muted);
+      box-shadow: inset 2px 0 var(--forge-accent);
     }
 
     &--search {
@@ -137,9 +146,14 @@
     }
 
     &--jump {
-      color: #7ec8ff;
+      color: var(--forge-accent);
       text-decoration: underline;
       text-underline-offset: 2px;
+      background: transparent;
+      border: 0;
+      min-height: 0;
+      padding: 0;
+      display: inline;
     }
   }
 
@@ -152,7 +166,7 @@
   }
 
   &__offset {
-    color: #9aa0a6;
+    color: var(--forge-text-muted);
     user-select: none;
   }
 
@@ -164,7 +178,7 @@
     cursor: default;
 
     &--instr {
-      background: rgba(18, 142, 199, 0.22);
+      background: var(--forge-accent-muted);
     }
 
     &--part {
@@ -172,7 +186,7 @@
     }
 
     &--header {
-      color: #9aa0a6;
+      color: var(--forge-text-muted);
     }
   }
 
@@ -180,9 +194,9 @@
     flex: 0 0 auto;
     max-height: 34%;
     overflow: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-top: 1px solid var(--forge-border);
     padding: 0.35rem 0.5rem;
-    background: #1b1f23;
+    background: var(--forge-bg-elevated);
   }
 
   &__details-title {
@@ -214,7 +228,7 @@
     flex: 0 0 auto;
     max-height: 32%;
     overflow: auto;
-    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    border-top: 1px solid var(--forge-border);
     padding: 0.35rem 0.6rem;
   }
 
@@ -252,15 +266,15 @@
     cursor: pointer;
 
     &--added {
-      background: rgba(40, 167, 69, 0.18);
+      background: color-mix(in srgb, var(--forge-success) 22%, transparent);
     }
 
     &--removed {
-      background: rgba(220, 53, 69, 0.18);
+      background: color-mix(in srgb, var(--forge-danger) 22%, transparent);
     }
 
     &--changed {
-      background: rgba(255, 193, 7, 0.16);
+      background: color-mix(in srgb, var(--forge-accent) 18%, transparent);
     }
   }
 }

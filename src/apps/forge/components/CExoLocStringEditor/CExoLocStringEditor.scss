@@ -53,7 +53,7 @@
       transition: background-color $transition-fast ease;
 
       &:hover {
-        background-color: var(--forge-accent);
+        background-color: var(--forge-accent-hover);
       }
 
       &:active {
@@ -199,8 +199,8 @@
 
     .cexoloc-search-icon-button {
       &:hover {
-        color: var(--forge-accent);
-        background-color: color-mix(in srgb, var(--forge-accent) 10%, transparent);
+        color: var(--forge-accent-hover);
+        background-color: color-mix(in srgb, var(--forge-accent-hover) 10%, transparent);
       }
     }
 
@@ -245,7 +245,7 @@
         transition: background-color $transition-fast ease;
 
         &:hover:not(:disabled) {
-          background-color: var(--forge-success);
+          background-color: color-mix(in srgb, var(--forge-success) 85%, white);
         }
 
         &:active:not(:disabled) {
@@ -253,8 +253,9 @@
         }
 
         &:disabled {
-          background-color: $disabled-bg;
-          border: $border-width solid $disabled-border;
+          color: var(--forge-text-disabled);
+          background-color: var(--forge-bg-elevated);
+          border: $border-width solid var(--forge-border);
           cursor: not-allowed;
           opacity: 0.6;
         }
@@ -324,7 +325,7 @@
           transition: background-color $transition-fast ease;
 
           &:hover {
-            background-color: var(--forge-danger);
+            background-color: var(--forge-danger-hover);
           }
 
           &:active {

@@ -41,14 +41,14 @@
     border: $border-width-thick solid var(--forge-accent);
     border-radius: 4px;
     background: var(--forge-accent);
-    color: inherit;
+    color: var(--forge-text-bright);
     font-size: 12px;
     cursor: pointer;
-    text-shadow: 0 1px 0 var(--forge-accent);
+    text-shadow: none;
     transition: background $transition-fast ease, color $transition-fast ease, border-color $transition-fast ease;
 
     &:hover {
-      background: var(--forge-accent);
+      background: var(--forge-accent-hover);
       border-color: var(--forge-accent-hover);
       color: var(--forge-text-bright);
     }

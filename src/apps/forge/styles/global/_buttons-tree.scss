@@ -81,6 +81,26 @@
   }
 }
 
+.btn,
+button.btn,
+.btn-default {
+  @extend .forge-btn;
+}
+
+.btn-primary,
+button.btn.btn-primary {
+  @extend .forge-btn--primary;
+}
+
+.btn-danger,
+button.btn.btn-danger {
+  @extend .forge-btn--danger;
+}
+
+.btn-link {
+  @extend .forge-btn--ghost;
+}
+
 .forge-btn-group {
   display: inline-flex;
   align-items: stretch;
