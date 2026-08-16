@@ -1,7 +1,8 @@
 import { EditorFile } from "@/apps/forge/EditorFile";
 import { DeepObject } from "@/utility/DeepObject";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
-import { TabModuleEditorState, TabQuickStartState } from "@/apps/forge/states/tabs";
+import { TabModuleEditorState, TabProjectExplorerState, TabQuickStartState } from "@/apps/forge/states/tabs";
+import { RecentProject } from "@/apps/forge/RecentProject";
 
 import * as KotOR from "@/apps/forge/KotOR";
 import { ProjectType } from "@/apps/forge/enum/ProjectType";
@@ -79,14 +80,115 @@ export class Project {
     });
   }
 
-  //Save any altered files in the project
-  save(){
-
+  static async OpenRecent(recentProject: RecentProject): Promise<boolean> {
+    if(!recentProject){
+      return false;
+    }
+    try{
+      ForgeState.loaderShow();
+      if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.ELECTRON){
+        const projectPath = recentProject.path;
+        if(!projectPath){
+          throw new Error('Project path not available');
+        }
+        ProjectFileSystem.clearDirectoryCache();
+        ProjectFileSystem.rootDirectoryPath = projectPath;
+        const project = new Project();
+        const loaded = await project.load();
+        if(loaded){
+          await project.open();
+          await ProjectFileSystem.initializeProjectExplorer();
+          return true;
+        }
+        await ForgeState.removeRecentProject(recentProject);
+        console.warn('Failed to open project. It may have been moved or deleted.');
+        return false;
+      }
+      let handle = recentProject.handle;
+      if(!handle && recentProject.name){
+        const handleKey = `project_handle_${recentProject.getIdentifier()}`;
+        try {
+          const { get } = await import('idb-keyval');
+          handle = await get(handleKey);
+        } catch(e) {
+          console.warn('Failed to restore handle from IndexedDB:', e);
+        }
+      }
+      if(handle instanceof FileSystemDirectoryHandle){
+        try{
+          await handle.queryPermission({ mode: 'read' });
+          ProjectFileSystem.clearDirectoryCache();
+          ProjectFileSystem.rootDirectoryHandle = handle;
+          const project = new Project();
+          const loaded = await project.load();
+          if(loaded){
+            await project.open();
+            await ProjectFileSystem.initializeProjectExplorer();
+            await ForgeState.addRecentProject(handle);
+            return true;
+          }
+          throw new Error('Project failed to load');
+        } catch(permError){
+          console.warn('Handle permission denied or invalid, requesting new access:', permError);
+          Project.OpenByDirectory();
+          return false;
+        }
+      }
+      Project.OpenByDirectory();
+      return false;
+    }catch(e){
+      console.error('Error opening recent project:', e);
+      await ForgeState.removeRecentProject(recentProject);
+      return false;
+    }finally{
+      ForgeState.loaderHide();
+    }
   }
 
-  //Closes the current project
-  close(){
+  // Save project settings and dirty editor tabs (not a module export).
+  async save(){
+    await this.saveSettings();
+    const tabs = [...(ForgeState.tabManager?.tabs || [])];
+    for(let i = 0; i < tabs.length; i++){
+      const tab = tabs[i];
+      if(tab?.file?.unsaved_changes){
+        try{
+          await tab.save();
+        }catch(e){
+          console.error('Project.save: tab save failed', e);
+        }
+      }
+    }
+  }
 
+  async close(): Promise<boolean> {
+    const tabs = [...(ForgeState.tabManager?.tabs || [])];
+    const dirty = tabs.filter((tab) => tab.isClosable && tab.file?.unsaved_changes);
+    if(dirty.length){
+      const ok = window.confirm(`You have ${dirty.length} unsaved file(s). Close the project anyway?`);
+      if(!ok){
+        return false;
+      }
+    }
+    for(let i = 0; i < tabs.length; i++){
+      const tab = tabs[i];
+      if(tab?.isClosable){
+        tab.remove();
+      }
+    }
+    this.moduleEditor = undefined;
+    this.module = undefined;
+    ForgeState.project = undefined as any;
+    ProjectFileSystem.clearDirectoryCache();
+    ProjectFileSystem.rootDirectoryPath = undefined as any;
+    ProjectFileSystem.rootDirectoryHandle = undefined as any;
+    TabProjectExplorerState.Resources.splice(0, TabProjectExplorerState.Resources.length);
+    ForgeState.projectExplorerTab.reload();
+    const hasStart = ForgeState.tabManager.tabs.some((tab) => tab instanceof TabQuickStartState);
+    if(!hasStart){
+      ForgeState.tabManager.addTab(new TabQuickStartState());
+    }
+    return true;
   }
 
   async load(): Promise<boolean> {

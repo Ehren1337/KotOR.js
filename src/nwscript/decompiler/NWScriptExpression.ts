@@ -17,7 +17,11 @@ export enum NWScriptExpressionType {
   UNARY_OP = 'unary_op',
   FUNCTION_CALL = 'function_call',
   COMPARISON = 'comparison',
-  LOGICAL = 'logical'
+  LOGICAL = 'logical',
+  ASSIGNMENT = 'assignment',
+  VECTOR = 'vector',
+  AGGREGATE = 'aggregate',
+  UNKNOWN = 'unknown'
 }
 
 export class NWScriptExpression {
@@ -39,6 +43,18 @@ export class NWScriptExpression {
   // For function calls
   functionName: string;
   arguments: NWScriptExpression[];
+
+  // For vector values
+  components: NWScriptExpression[];
+
+  /** Flattened physical field types for a synthesized user-defined struct value. */
+  structureFieldTypes: NWScriptDataType[];
+
+  /** Source name assigned to the synthesized struct layout, when known. */
+  structureTypeName?: string;
+
+  // For values that cannot be recovered safely
+  diagnostic: string;
   
   constructor(type: NWScriptExpressionType, dataType: NWScriptDataType) {
     this.type = type;
@@ -46,6 +62,9 @@ export class NWScriptExpression {
     this.left = null;
     this.right = null;
     this.arguments = [];
+    this.components = [];
+    this.structureFieldTypes = [];
+    this.diagnostic = '';
   }
 
   /**
@@ -120,6 +139,42 @@ export class NWScriptExpression {
     return expr;
   }
 
+  /** Create an assignment expression for bytecodes that mutate a frame slot directly. */
+  static assignment(variable: NWScriptExpression, value: NWScriptExpression): NWScriptExpression {
+    const expr = new NWScriptExpression(NWScriptExpressionType.ASSIGNMENT, variable.dataType);
+    expr.left = variable;
+    expr.right = value;
+    return expr;
+  }
+
+  /** Create a three-component NWScript vector expression. */
+  static vector(components: NWScriptExpression[]): NWScriptExpression {
+    if (components.length !== 3) {
+      throw new Error(`A vector requires exactly three components, received ${components.length}`);
+    }
+    const expr = new NWScriptExpression(NWScriptExpressionType.VECTOR, NWScriptDataType.VECTOR);
+    expr.components = components;
+    return expr;
+  }
+
+  /** Physical fields of a flattened user-defined struct value. */
+  static aggregate(components: NWScriptExpression[]): NWScriptExpression {
+    const expr = new NWScriptExpression(
+      NWScriptExpressionType.AGGREGATE,
+      NWScriptDataType.STRUCTURE
+    );
+    expr.components = components;
+    expr.structureFieldTypes = components.map(component => component.dataType);
+    return expr;
+  }
+
+  /** Preserve an analysis failure without silently manufacturing a valid literal. */
+  static unknown(diagnostic: string, dataType: NWScriptDataType = NWScriptDataType.INTEGER): NWScriptExpression {
+    const expr = new NWScriptExpression(NWScriptExpressionType.UNKNOWN, dataType);
+    expr.diagnostic = diagnostic;
+    return expr;
+  }
+
   /**
    * Convert expression to NSS source code
    */
@@ -127,20 +182,31 @@ export class NWScriptExpression {
     switch (this.type) {
       case NWScriptExpressionType.CONSTANT:
         if (this.dataType === NWScriptDataType.STRING) {
-          return `"${this.value}"`;
+          return `"${this.escapeStringLiteral(String(this.value ?? ''))}"`;
         } else if (this.dataType === NWScriptDataType.FLOAT) {
           const n = typeof this.value === "number" ? this.value : parseFloat(String(this.value));
           if (!Number.isFinite(n)) {
-            return "0.0f";
+            return "__NCS_DECOMPILER_NONFINITE_FLOAT__";
           }
           // NSS float literals must not look like ints (re-parse assigns them as int).
           const s = String(n);
           const base = s.includes(".") || s.toLowerCase().includes("e") ? s : `${n}.0`;
           return base.endsWith("f") ? base : `${base}f`;
         } else if (this.dataType === NWScriptDataType.INTEGER) {
-          return this.value.toString();
-        } else if (this.dataType === NWScriptDataType.OBJECT && this.value === 0) {
-          return 'OBJECT_INVALID';
+          return typeof this.value === 'number' && Number.isInteger(this.value)
+            ? this.value.toString()
+            : '__NCS_DECOMPILER_INVALID_INTEGER__';
+        } else if (this.dataType === NWScriptDataType.OBJECT) {
+          if (this.value === 0) {
+            return 'OBJECT_SELF';
+          }
+          if (this.value === 1) {
+            return 'OBJECT_INVALID';
+          }
+          const objectId = Number(this.value);
+          return Number.isFinite(objectId)
+            ? `__NCS_OBJECT_ID_${Math.trunc(objectId).toString(16).toUpperCase()}__`
+            : '__NCS_DECOMPILER_UNKNOWN_OBJECT__';
         }
         return String(this.value);
 
@@ -154,6 +220,8 @@ export class NWScriptExpression {
 
       case NWScriptExpressionType.UNARY_OP:
         const operandStr = this.left?.toNSS() || '?';
+        if (this.operator === 'post++') return `${operandStr}++`;
+        if (this.operator === 'post--') return `${operandStr}--`;
         return `${this.operator}${operandStr}`;
 
       case NWScriptExpressionType.FUNCTION_CALL:
@@ -170,9 +238,90 @@ export class NWScriptExpression {
         const logRight = this.right?.toNSS() || '?';
         return `(${logLeft} ${this.operator} ${logRight})`;
 
+      case NWScriptExpressionType.ASSIGNMENT:
+        return `${this.left?.toNSS() || '__NCS_DECOMPILER_UNKNOWN_TARGET__'} = ${this.right?.toNSS() || '__NCS_DECOMPILER_UNKNOWN_VALUE__'}`;
+
+      case NWScriptExpressionType.VECTOR:
+        return `Vector(${this.components.map(component => component.toNSS()).join(', ')})`;
+
+      case NWScriptExpressionType.AGGREGATE:
+        return `__NCS_DECOMPILER_AGGREGATE_VALUE__ /* ${this.components.length} flattened fields */`;
+
+      case NWScriptExpressionType.UNKNOWN:
+        return `__NCS_DECOMPILER_UNKNOWN_VALUE__ /* ${this.escapeComment(this.diagnostic)} */`;
+
       default:
         return '?';
     }
+  }
+
+  /**
+   * Structural equality for stack-join compares. Matches the values {@link toNSS} would
+   * distinguish without rebuilding source text.
+   */
+  equals(other: NWScriptExpression | null | undefined): boolean {
+    if (other == null) return false;
+    if (other === this) return true;
+    if (this.type !== other.type || this.dataType !== other.dataType) return false;
+    if (this.structureTypeName !== other.structureTypeName) return false;
+    if (this.structureFieldTypes.length !== other.structureFieldTypes.length) return false;
+    for (let index = 0; index < this.structureFieldTypes.length; index++) {
+      if (this.structureFieldTypes[index] !== other.structureFieldTypes[index]) return false;
+    }
+
+    switch (this.type) {
+      case NWScriptExpressionType.CONSTANT:
+        if (typeof this.value === 'number' && typeof other.value === 'number') {
+          return this.value === other.value || (Number.isNaN(this.value) && Number.isNaN(other.value));
+        }
+        return this.value === other.value;
+      case NWScriptExpressionType.VARIABLE:
+        return this.variableName === other.variableName && this.isGlobal === other.isGlobal;
+      case NWScriptExpressionType.BINARY_OP:
+      case NWScriptExpressionType.COMPARISON:
+      case NWScriptExpressionType.LOGICAL:
+      case NWScriptExpressionType.ASSIGNMENT:
+        return this.operator === other.operator &&
+          (this.left?.equals(other.left) ?? other.left == null) &&
+          (this.right?.equals(other.right) ?? other.right == null);
+      case NWScriptExpressionType.UNARY_OP:
+        return this.operator === other.operator &&
+          (this.left?.equals(other.left) ?? other.left == null);
+      case NWScriptExpressionType.FUNCTION_CALL:
+        return this.functionName === other.functionName &&
+          this.sameExpressionList(this.arguments, other.arguments);
+      case NWScriptExpressionType.VECTOR:
+      case NWScriptExpressionType.AGGREGATE:
+        return this.sameExpressionList(this.components, other.components);
+      case NWScriptExpressionType.UNKNOWN:
+        return this.diagnostic === other.diagnostic;
+      default:
+        return false;
+    }
+  }
+
+  private sameExpressionList(left: NWScriptExpression[], right: NWScriptExpression[]): boolean {
+    if (left.length !== right.length) return false;
+    for (let index = 0; index < left.length; index++) {
+      if (!left[index].equals(right[index])) return false;
+    }
+    return true;
+  }
+
+  private escapeStringLiteral(value: string): string {
+    return value
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\u0000/g, '\\0')
+      .replace(/\u0008/g, '\\b')
+      .replace(/\u000c/g, '\\f')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r')
+      .replace(/\t/g, '\\t');
+  }
+
+  private escapeComment(value: string): string {
+    return value.replace(/\*\//g, '* /').replace(/\s+/g, ' ').trim() || 'unknown expression';
   }
 
   /**
@@ -184,9 +333,13 @@ export class NWScriptExpression {
       case NWScriptDataType.FLOAT: return 'float';
       case NWScriptDataType.STRING: return 'string';
       case NWScriptDataType.OBJECT: return 'object';
+      case NWScriptDataType.VECTOR: return 'vector';
+      case NWScriptDataType.EFFECT: return 'effect';
+      case NWScriptDataType.EVENT: return 'event';
+      case NWScriptDataType.LOCATION: return 'location';
+      case NWScriptDataType.TALENT: return 'talent';
       case NWScriptDataType.VOID: return 'void';
       default: return 'unknown';
     }
   }
 }
-

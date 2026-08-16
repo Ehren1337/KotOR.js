@@ -3,7 +3,7 @@ import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabSSFEditorState } from "@/apps/forge/states/tabs/TabSSFEditorState";
 import { MenuBar, MenuItem } from "@/apps/forge/components/common/MenuBar";
-import { Button, Form, Spinner } from "react-bootstrap";
+import { ForgeButton, ForgeSpinner, ForgeInput } from "@/apps/forge/components/ui";
 import * as KotOR from "@/apps/forge/KotOR";
 import { SSFType } from "@/enums/resource/SSFType";
 
@@ -231,7 +231,7 @@ export const TabSSFEditor = function (props: BaseTabProps) {
   ];
 
   return (
-    <div className="tab-ssf-editor h-100 overflow-hidden">
+    <div className="tab-ssf-editor" style={{height: '100%', overflow: 'hidden'}}>
       <MenuBar items={menuItems} />
 
       <div className="tab-ssf-editor__scroll">
@@ -259,7 +259,7 @@ export const TabSSFEditor = function (props: BaseTabProps) {
                   <div className="tab-ssf-editor__grid-row" key={slot}>
                     <div className="tab-ssf-editor__slot-label">{label}</div>
                     <div>
-                      <Form.Control
+                      <ForgeInput
                         type="number"
                         min={0}
                         max={4294967295}
@@ -279,15 +279,15 @@ export const TabSSFEditor = function (props: BaseTabProps) {
                     </div>
                     <div className="tab-ssf-editor__actions">
                       {err ? <span className="tab-ssf-editor__preview-error" title={err}>{err}</span> : null}
-                      {loading ? <Spinner animation="border" size="sm" /> : null}
-                      <Button
+                      {loading ? <ForgeSpinner animation="border" size="sm" /> : null}
+                      <ForgeButton
                         variant={playing ? "warning" : "primary"}
                         size="sm"
                         disabled={!soundRef || loading}
                         onClick={() => void togglePreview(slot)}
                       >
                         {playing ? "Stop" : "Play"}
-                      </Button>
+                      </ForgeButton>
                     </div>
                   </div>
                 );

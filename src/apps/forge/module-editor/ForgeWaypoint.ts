@@ -17,11 +17,12 @@ export class ForgeWaypoint extends ForgeGameObject {
   paletteID: number = 0;
   tag: string = '';
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -96,7 +97,7 @@ export class ForgeWaypoint extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOLOCSTRING, 'MapNote', this.mapNote) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'MapNoteEnabled', this.mapNoteEnabled ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PaletteID', this.paletteID) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'Tag', this.tag) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOSTRING, 'Tag', this.tag) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'TemplateResRef', this.templateResRef || '') );
 
     return this.blueprint;

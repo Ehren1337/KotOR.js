@@ -3,13 +3,19 @@ import * as KotOR from "@/apps/forge/KotOR";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { ProjectFileSystem } from "@/apps/forge/ProjectFileSystem";
 import { NWScriptCompiler } from "@/nwscript/compiler/NWScriptCompiler";
+import {
+  COMPILED_DIR,
+  compiledNcsPathForProjectNss,
+  normalizeProjectRelativePath,
+} from "@/apps/forge/helpers/forgeNcsCompilePaths";
 
-const COMPILED_DIR = "ncs";
-
-/** Normalize project-relative paths to POSIX-style slashes. */
-export function normalizeProjectRelativePath(projectRelPath: string): string {
-  return projectRelPath.replace(/\\/g, "/").replace(/^\/+/, "");
-}
+export {
+  COMPILED_DIR,
+  GAME_OVERRIDE_DIR,
+  compiledNcsOverrideRelativePath,
+  compiledNcsPathForProjectNss,
+  normalizeProjectRelativePath,
+} from "@/apps/forge/helpers/forgeNcsCompilePaths";
 
 /**
  * Resolve #include directives the same way the script editor does (via KEY/archives).
@@ -145,16 +151,6 @@ export function shouldBulkCompileProjectNssPath(projectRelPath: string): boolean
   if (base === "nwscript.nss") return false;
 
   return true;
-}
-
-/** Destination under project root: `{COMPILED_DIR}/<mirror>.ncs`. */
-export function compiledNcsPathForProjectNss(projectRelNss: string): string {
-  const norm = normalizeProjectRelativePath(projectRelNss);
-  const dir = path.posix.dirname(norm);
-  const baseNoExt = path.posix.basename(norm, ".nss");
-  const leaf = `${baseNoExt}.ncs`;
-  if (dir === "." || dir === "") return path.posix.join(COMPILED_DIR, leaf);
-  return path.posix.join(COMPILED_DIR, dir, leaf);
 }
 
 async function mkdirParentOfProjectRelativeFile(projectRelTargetPath: string): Promise<boolean> {

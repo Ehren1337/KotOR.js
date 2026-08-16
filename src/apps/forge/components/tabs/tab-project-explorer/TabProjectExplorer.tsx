@@ -12,6 +12,7 @@ import { compileAllNssInProject } from "@/apps/forge/helpers/ForgeNWScriptCompil
 import { ModalBulkNssCompileResultsState } from "@/apps/forge/states/modal/ModalBulkNssCompileResultsState";
 import { ListItemNode } from "@/apps/forge/components/treeview/ListItemNode";
 import { ContextMenuItem, useContextMenu } from "@/apps/forge/components/common/ContextMenu";
+import { ForgeButton } from "@/apps/forge/components/ui";
 
 function folderExpanded(expanded: Record<string, boolean>, relKey: string): boolean {
   if (expanded[relKey] !== undefined) return expanded[relKey] as boolean;
@@ -98,7 +99,7 @@ export const TabProjectExplorer = function (props: BaseTabProps) {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "": true });
-  const { showContextMenu, ContextMenuComponent } = useContextMenu("dark");
+  const { showContextMenu, ContextMenuComponent } = useContextMenu();
 
   const onResourceContextMenu = useCallback(
     (event: React.MouseEvent, node: FileBrowserNode) => {
@@ -222,35 +223,16 @@ export const TabProjectExplorer = function (props: BaseTabProps) {
       >
         <div
           style={{
-            color: "#ccc",
+            color: "var(--forge-text-muted)",
             fontSize: "14px",
             textAlign: "center",
           }}
         >
           No project is currently open.
         </div>
-        <button
-          onClick={handleOpenProject}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "#007acc",
-            color: "#fff",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-            fontSize: "14px",
-            fontFamily: "system-ui, -apple-system, sans-serif",
-            transition: "background-color 0.2s",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = "#005a9e";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = "#007acc";
-          }}
-        >
+        <ForgeButton variant="primary" onClick={handleOpenProject}>
           Open Project
-        </button>
+        </ForgeButton>
       </div>
     );
   }

@@ -73,6 +73,7 @@ export class ForgeDoor extends ForgeGameObject {
   openState: number = 0;
   paletteID: number = 0;
   plot: boolean = false;
+  portrait: string = '';
   portraitId: number = 0;
   ref: number = 0;
   static: boolean = false;
@@ -85,11 +86,12 @@ export class ForgeDoor extends ForgeGameObject {
   trapType: number = 0;
   will: number = 0;
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -179,6 +181,12 @@ export class ForgeDoor extends ForgeGameObject {
     if(root.hasField('LocName')){
       this.locName = root.getFieldByLabel('LocName').getCExoLocString() || new KotOR.CExoLocString();
     }
+    if(root.hasField('LinkedTo')){
+      this.linkedTo = root.getFieldByLabel('LinkedTo').getValue() || '';
+    }
+    if(root.hasField('LinkedToFlags')){
+      this.linkedToFlags = root.getFieldByLabel('LinkedToFlags').getValue() || 0;
+    }
     if(root.hasField('Lockable')){
       this.lockable = root.getFieldByLabel('Lockable').getValue() || false;
     }
@@ -242,6 +250,9 @@ export class ForgeDoor extends ForgeGameObject {
     if(root.hasField('Plot')){
       this.plot = root.getFieldByLabel('Plot').getValue() || false;
     }
+    if(root.hasField('Portrait')){
+      this.portrait = root.getFieldByLabel('Portrait').getValue() || '';
+    }
     if(root.hasField('PortraitId')){
       this.portraitId = root.getFieldByLabel('PortraitId').getValue() || 0;
     }
@@ -304,6 +315,8 @@ export class ForgeDoor extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Interruptable', this.interruptable ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOSTRING, 'KeyName', this.keyName) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'KeyRequired', this.keyRequired ? 1 : 0) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOSTRING, 'LinkedTo', this.linkedTo) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'LinkedToFlags', this.linkedToFlags) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.WORD, 'LoadScreenID', this.loadScreenID || 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOLOCSTRING, 'LocName', this.locName) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Lockable', this.lockable ? 1 : 0) );
@@ -327,6 +340,7 @@ export class ForgeDoor extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'OpenState', this.openState || 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PaletteID', this.paletteID || 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Plot', this.plot ? 1 : 0) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'Portrait', this.portrait || '') );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.WORD, 'PortraitId', this.portraitId || 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Ref', this.ref) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Static', this.static ? 1 : 0) );

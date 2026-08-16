@@ -1,5 +1,4 @@
 import * as KotOR from "@/apps/forge/KotOR";
-import { GroupType, type UI3DRenderer } from "@/apps/forge/UI3DRenderer";
 import { ForgeGameObject } from "@/apps/forge/module-editor/ForgeGameObject";
 
 interface EngineItem {
@@ -180,13 +179,12 @@ export class ForgeCreature extends ForgeGameObject {
     rightHand2Item: undefined,
   };
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
-    } else {
-      this.blueprint = new KotOR.GFFObject();
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -259,11 +257,6 @@ export class ForgeCreature extends ForgeGameObject {
         this.loadEquipment(KotOR.ModuleCreatureArmorSlot.CLAW3);
       }
     }
-    if(property === 'slotHide'){
-      if(newValue !== oldValue){
-        this.loadEquipment(KotOR.ModuleCreatureArmorSlot.HIDE);
-      }
-    }
     if(property === 'slotLeftHand2'){
       if(newValue !== oldValue){
         this.loadEquipment(KotOR.ModuleCreatureArmorSlot.LEFTHAND2);
@@ -306,39 +299,68 @@ export class ForgeCreature extends ForgeGameObject {
       let modelVariation: number = 0;
       let textureVariation: number = 0;
       let bodyVariation: number = 1;
-      let itemTemplate: KotOR.GFFObject = new KotOR.GFFObject();
+      let itemTemplate: KotOR.GFFObject | undefined;
       let slotKey: keyof typeof this.templateSlots | undefined = undefined;
+      let equippedRes = '';
 
       const utiResId = KotOR.ResourceTypes.uti;
 
       switch(slot){
         case KotOR.ModuleCreatureArmorSlot.HEAD:
-          if(!this.slotHead) return;
-          itemTemplate = new KotOR.GFFObject(
-            await KotOR.ResourceLoader.loadResource(utiResId, this.slotHead)
-          );
           slotKey = 'headItem';
+          equippedRes = this.slotHead;
           break;
         case KotOR.ModuleCreatureArmorSlot.ARMOR:
-          if(!this.slotArmor) return;
-          itemTemplate = new KotOR.GFFObject(
-            await KotOR.ResourceLoader.loadResource(utiResId, this.slotArmor)
-          );
           slotKey = 'armorItem';
+          equippedRes = this.slotArmor;
           break;
         case KotOR.ModuleCreatureArmorSlot.LEFTHAND:
-          if(!this.slotLeftHand) return;
-          itemTemplate = new KotOR.GFFObject(
-            await KotOR.ResourceLoader.loadResource(utiResId, this.slotLeftHand)
-          );
           slotKey = 'leftHandItem';
+          equippedRes = this.slotLeftHand;
           break;
         case KotOR.ModuleCreatureArmorSlot.RIGHTHAND:
-          if(!this.slotRightHand) return;
-          itemTemplate = new KotOR.GFFObject(
-            await KotOR.ResourceLoader.loadResource(utiResId, this.slotRightHand)
-          );
           slotKey = 'rightHandItem';
+          equippedRes = this.slotRightHand;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.BELT:
+          slotKey = 'beltItem';
+          equippedRes = this.slotBelt;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.IMPLANT:
+          slotKey = 'implantItem';
+          equippedRes = this.slotImplant;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.LEFTARMBAND:
+          slotKey = 'leftArmbandItem';
+          equippedRes = this.slotLeftArmband;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.RIGHTARMBAND:
+          slotKey = 'rightArmbandItem';
+          equippedRes = this.slotRightArmband;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.HIDE:
+          slotKey = 'hideItem';
+          equippedRes = this.slotHide;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.CLAW1:
+          slotKey = 'claw1Item';
+          equippedRes = this.slotClaw1;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.CLAW2:
+          slotKey = 'claw2Item';
+          equippedRes = this.slotClaw2;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.CLAW3:
+          slotKey = 'claw3Item';
+          equippedRes = this.slotClaw3;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.LEFTHAND2:
+          slotKey = 'leftHand2Item';
+          equippedRes = this.slotLeftHand2;
+          break;
+        case KotOR.ModuleCreatureArmorSlot.RIGHTHAND2:
+          slotKey = 'rightHand2Item';
+          equippedRes = this.slotRightHand2;
           break;
         default:
           break;
@@ -347,29 +369,35 @@ export class ForgeCreature extends ForgeGameObject {
       if(slotKey){
         this.templateSlots[slotKey] = undefined;
       }
-      
-      if(itemTemplate && typeof slotKey === 'string'){
-        const root = itemTemplate.RootNode;
-        if(root.hasField('BaseItem')){
-          baseItemId = itemTemplate.getFieldByLabel('BaseItem').getValue() || 0;
-          baseItem = KotOR.SWRuleSet.baseItems[baseItemId];
-        }
-        if(root.hasField('ModelVariation')){
-          modelVariation = root.getFieldByLabel('ModelVariation').getValue() || 0;
-        }
-        if(root.hasField('TextureVar')){
-          textureVariation = root.getFieldByLabel('TextureVar').getValue() || 0;
-        }
-        if(root.hasField('BodyVariation')){
-          bodyVariation = root.getFieldByLabel('BodyVariation').getValue() || '';
-        }
-        this.templateSlots[slotKey] = {
-          baseItem: baseItem,
-          modelVariation: modelVariation,
-          textureVariation: textureVariation,
-          bodyVariation: baseItem?.bodyVar || (bodyVariation > 0 ? String.fromCharCode(bodyVariation + 64) : ''),
-        };
+
+      if(!slotKey || !equippedRes){
+        return;
       }
+
+      itemTemplate = new KotOR.GFFObject(
+        await KotOR.ResourceLoader.loadResource(utiResId, equippedRes)
+      );
+
+      const root = itemTemplate.RootNode;
+      if(root.hasField('BaseItem')){
+        baseItemId = itemTemplate.getFieldByLabel('BaseItem').getValue() || 0;
+        baseItem = KotOR.SWRuleSet.baseItems[baseItemId];
+      }
+      if(root.hasField('ModelVariation')){
+        modelVariation = root.getFieldByLabel('ModelVariation').getValue() || 0;
+      }
+      if(root.hasField('TextureVar')){
+        textureVariation = root.getFieldByLabel('TextureVar').getValue() || 0;
+      }
+      if(root.hasField('BodyVariation')){
+        bodyVariation = root.getFieldByLabel('BodyVariation').getValue() || 1;
+      }
+      this.templateSlots[slotKey] = {
+        baseItem: baseItem,
+        modelVariation: modelVariation,
+        textureVariation: textureVariation,
+        bodyVariation: baseItem?.bodyVar || (bodyVariation > 0 ? String.fromCharCode(bodyVariation + 64) : ''),
+      };
     }catch(e){
       console.error(e);
     }
@@ -652,7 +680,9 @@ export class ForgeCreature extends ForgeGameObject {
     if(root.hasField('Plot')){
       this.plot = root.getFieldByLabel('Plot').getValue() || false;
     }
-    if(root.hasField('PalletID')){
+    if(root.hasField('PaletteID')){
+      this.palletID = root.getFieldByLabel('PaletteID').getValue() || 0;
+    }else if(root.hasField('PalletID')){
       this.palletID = root.getFieldByLabel('PalletID').getValue() || 0;
     }
     if(root.hasField('PortraitId')){
@@ -670,13 +700,17 @@ export class ForgeCreature extends ForgeGameObject {
     if(root.hasField('ScriptDeath')){
       this.scriptDeath = root.getFieldByLabel('ScriptDeath').getValue() || '';
     }
-    if(root.hasField('ScriptDialogu')){
+    if(root.hasField('ScriptDialogue')){
+      this.scriptDialogu = root.getFieldByLabel('ScriptDialogue').getValue() || '';
+    }else if(root.hasField('ScriptDialogu')){
       this.scriptDialogu = root.getFieldByLabel('ScriptDialogu').getValue() || '';
     }
     if(root.hasField('ScriptDisturbed')){
       this.scriptDisturbed = root.getFieldByLabel('ScriptDisturbed').getValue() || '';
     }
-    if(root.hasField('ScriptEndDialogue')){
+    if(root.hasField('ScriptEndDialogu')){
+      this.scriptEndDialogue = root.getFieldByLabel('ScriptEndDialogu').getValue() || '';
+    }else if(root.hasField('ScriptEndDialogue')){
       this.scriptEndDialogue = root.getFieldByLabel('ScriptEndDialogue').getValue() || '';
     }
     if(root.hasField('ScriptEndRound')){
@@ -877,7 +911,7 @@ export class ForgeCreature extends ForgeGameObject {
       equipItem.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'EquippedRes', this.slotArms) );
       equipItemList.addChildStruct(equipItem);
     }
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.LIST, 'Equip_ItemList', equipItemList) );
+    root.addField(equipItemList);
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.WORD, 'FactionID', this.factionID) );
     const featList = new KotOR.GFFField(KotOR.GFFDataType.LIST, 'FeatList');
     if(featList){
@@ -914,7 +948,7 @@ export class ForgeCreature extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'NaturalAC', this.naturalAC) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'NoPermDeath', this.noPermDeath ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'NotReorienting', this.notReorienting ? 1 : 0) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PalletID', this.palletID) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PaletteID', this.palletID) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PartyInteract', this.partyInteract ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PerceptionRange', this.perceptionRange) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.INT, 'Phenotype', this.phenotype) );
@@ -924,9 +958,9 @@ export class ForgeCreature extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptAttacked', this.scriptAttacked) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptDamaged', this.scriptDamaged) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptDeath', this.scriptDeath) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptDialogu', this.scriptDialogu) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptDialogue', this.scriptDialogu) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptDisturbed', this.scriptDisturbed) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptEndDialogue', this.scriptEndDialogue) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptEndDialogu', this.scriptEndDialogue) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptEndRound', this.scriptEndRound) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptHeartbeat', this.scriptHeartbeat) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptOnBlocked', this.scriptOnBlocked) );

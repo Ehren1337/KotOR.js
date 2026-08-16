@@ -37,11 +37,12 @@ export class ForgeSound extends ForgeGameObject {
   volumeVariation: number = 0;
   paletteID: number = 0;
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 

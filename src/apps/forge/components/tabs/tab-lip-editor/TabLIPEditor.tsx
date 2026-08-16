@@ -4,7 +4,8 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabLIPEditorState, TabLIPEditorStateEventListenerTypes } from "@/apps/forge/states/tabs";
 import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerContext";
-import { Form } from "react-bootstrap";
+
+import { ForgeSelect } from "@/apps/forge/components/ui";
 import { LIPShapeLabels } from "@/apps/forge/data/LIPShapeLabels";
 
 import * as KotOR from "@/apps/forge/KotOR";
@@ -561,7 +562,7 @@ export const UILIPKeyFramePanel = function(props: UILIPKeyFramePanelProps){
             <span className="lip-toolbar__clock-dur">{formatLipClock(duration)}</span>
           </span>
           {selectedFrame ? (
-            <Form.Select
+            <ForgeSelect
               className="lip-toolbar__shape-select"
               onChange={onKeyFrameShapeChange}
               value={selectedFrame.shape}
@@ -570,11 +571,11 @@ export const UILIPKeyFramePanel = function(props: UILIPKeyFramePanelProps){
               {LIPShapeLabels.map((label: string, i: number) => (
                 <option key={i} value={i}>{label.trim()}</option>
               ))}
-            </Form.Select>
+            </ForgeSelect>
           ) : (
-            <Form.Select className="lip-toolbar__shape-select" disabled value="">
+            <ForgeSelect className="lip-toolbar__shape-select" disabled value="">
               <option value="">— shape —</option>
-            </Form.Select>
+            </ForgeSelect>
           )}
         </div>
 

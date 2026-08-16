@@ -29,7 +29,7 @@
 .lip-sidebar__label {
   flex: 0 0 52px;
   font-size: $font-size-small;
-  color: $text-tertiary;
+  color: var(--forge-text-muted);
   white-space: nowrap;
   margin-bottom: 0;
 }
@@ -63,7 +63,7 @@
 .lip-sidebar__hint {
   margin: $spacing-sm 0 0;
   font-size: $font-size-small;
-  color: $text-quaternary;
+  color: var(--forge-text-disabled);
   line-height: 1.4;
 }
 
@@ -78,14 +78,14 @@
   flex-shrink: 0;
   font-size: 13px;
 
-  &--active  { color: $primary-blue-lighter; }
-  &--missing { color: $text-quaternary; }
+  &--active  { color: var(--forge-accent-hover); }
+  &--missing { color: var(--forge-text-disabled); }
 }
 
 .lip-sidebar__audio-name {
   flex: 1;
   font-size: $font-size-small;
-  color: $text-primary;
+  color: var(--forge-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -93,7 +93,7 @@
 }
 
 .lip-sidebar__audio-none {
-  color: $text-quaternary;
+  color: var(--forge-text-disabled);
   font-style: italic;
   font-family: inherit;
 }
@@ -131,8 +131,8 @@
   flex-shrink: 0;
   gap: $spacing-md;
   padding: $spacing-xs $spacing-md;
-  background: $bg-darker;
-  border-bottom: 1px solid $border-tertiary;
+  background: var(--forge-bg);
+  border-bottom: 1px solid var(--forge-border-subtle);
   user-select: none;
   z-index: 2;
   min-height: 42px;
@@ -170,21 +170,21 @@
   font-family: monospace;
   font-size: $font-size-small;
   white-space: nowrap;
-  color: $text-primary;
+  color: var(--forge-text);
 
   .lip-toolbar__clock-time {
-    color: $primary-blue-lighter;
+    color: var(--forge-accent-hover);
     font-weight: bold;
   }
 
   .lip-toolbar__clock-sep {
-    color: $text-quaternary;
+    color: var(--forge-text-disabled);
     font-size: 0.65rem;
     line-height: 1;
   }
 
   .lip-toolbar__clock-dur {
-    color: $text-tertiary;
+    color: var(--forge-text-muted);
   }
 }
 
@@ -203,12 +203,12 @@
   gap: 2px;
   padding: 2px 4px;
   background: rgba(0, 0, 0, 0.2);
-  border: 1px solid $border-tertiary;
+  border: 1px solid var(--forge-border-subtle);
   border-radius: 4px;
 
   &--add {
-    background: rgba($primary-blue-dark, 0.15);
-    border-color: rgba($primary-blue-dark, 0.35);
+    background: color-mix(in srgb, var(--forge-accent) 15%, transparent);
+    border-color: color-mix(in srgb, var(--forge-accent) 35%, transparent);
   }
 }
 
@@ -223,19 +223,19 @@
   border: none;
   border-radius: 3px;
   background: transparent;
-  color: $text-tertiary;
+  color: var(--forge-text-muted);
   font-size: 14px;
   line-height: 1;
   cursor: pointer;
   transition: color $transition-fast, background $transition-fast;
 
   &:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.06);
-    color: $text-secondary;
+    background: var(--forge-bg-hover);
+    color: var(--forge-text-bright);
   }
 
   &:active:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--forge-bg-active);
   }
 
   &:disabled {
@@ -247,23 +247,23 @@
     width: 34px;
     height: 34px;
     font-size: 18px;
-    color: $primary-blue-lighter;
+    color: var(--forge-accent-hover);
     border-radius: 50%;
-    background: rgba($primary-blue-darker, 0.3);
-    border: 1px solid rgba($primary-blue, 0.35);
+    background: color-mix(in srgb, var(--forge-accent) 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--forge-accent) 35%, transparent);
 
     &:hover:not(:disabled) {
-      background: rgba($primary-blue-darker, 0.55);
-      color: $primary-blue-lightest;
+      background: color-mix(in srgb, var(--forge-accent) 55%, transparent);
+      color: var(--forge-accent-hover);
     }
   }
 
   &--add {
-    color: $tsl-primary-light;
+    color: var(--forge-accent-hover);
 
     &:hover:not(:disabled) {
-      background: rgba($tsl-primary-dark, 0.25);
-      color: $tsl-primary-lighter;
+      background: color-mix(in srgb, var(--forge-accent) 25%, transparent);
+      color: var(--forge-accent-hover);
     }
   }
 }
@@ -299,7 +299,7 @@
     bottom: 0;
     // Width is driven by inline style (audio duration × zoom); no min-width override
     // Semi-transparent so keyframe diamonds on the layer above remain readable
-    background: rgba($bg-dark, 0.6);
+    background: color-mix(in srgb, var(--forge-bg) 60%, transparent);
     pointer-events: none;  // click-through to the keyframe bar beneath
 
     canvas {
@@ -321,7 +321,7 @@
       justify-content: center;
       gap: $spacing-xs;
       font-size: $font-size-small;
-      color: $text-quaternary;
+      color: var(--forge-text-disabled);
       pointer-events: none;
       letter-spacing: 0.02em;
 
@@ -346,7 +346,7 @@
     top: 0;
     bottom: 0;
     width: 1px;
-    background: rgba($primary-blue, 0.35);
+    background: color-mix(in srgb, var(--forge-accent) 35%, transparent);
     pointer-events: none;
     z-index: 0;
   }
@@ -374,7 +374,7 @@
       display: block;
       width: 2px;
       margin: 0 auto;
-      background: rgba($primary-blue, 0.7);
+      background: color-mix(in srgb, var(--forge-accent) 70%, transparent);
       border-radius: 1px;
       transition: background $transition-fast, width $transition-fast;
     }
@@ -390,7 +390,7 @@
 
     &:hover::before,
     &:active::before {
-      background: $primary-blue;
+      background: var(--forge-accent);
       width: 3px;
     }
   }

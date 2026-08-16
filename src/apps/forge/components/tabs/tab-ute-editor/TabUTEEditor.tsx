@@ -10,6 +10,7 @@ import { ForgeCheckbox } from "@/apps/forge/components/forge-checkbox/forge-chec
 import "@/apps/forge/components/tabs/tab-ute-editor/TabUTEEditor.scss";
 import { SubTab, SubTabHost } from "@/apps/forge/components/SubTabHost/SubTabHost";
 import { ForgeEncounter } from "@/apps/forge/module-editor/ForgeEncounter";
+import { ScriptResRefInput } from "@/apps/forge/components/script-resref-input/ScriptResRefInput";
 
 export const TabUTEEditor = function(props: BaseTabProps){
   const tab: TabUTEEditorState = props.tab as TabUTEEditorState;
@@ -387,12 +388,9 @@ export const TabUTEEditor = function(props: BaseTabProps){
                 label="OnEntered"
                 info="CResRef of script to execute when a creature enters the encounter area (16 characters max)."
               >
-                <input 
-                  type="text" 
-                  maxLength={16} 
-                  value={onEntered} 
-                  onChange={onUpdateResRefField(setOnEntered, 'onEntered')} 
-                  placeholder="Script ResRef"
+                <ScriptResRefInput
+                  value={onEntered}
+                  onChange={onUpdateResRefField(setOnEntered, 'onEntered')}
                   className="tab-ute-editor__input-monospace"
                 />
               </FormField>
@@ -400,12 +398,9 @@ export const TabUTEEditor = function(props: BaseTabProps){
                 label="OnExhausted"
                 info="CResRef of script to execute when the encounter is exhausted (all creatures defeated) (16 characters max)."
               >
-                <input 
-                  type="text" 
-                  maxLength={16} 
-                  value={onExhausted} 
-                  onChange={onUpdateResRefField(setOnExhausted, 'onExhausted')} 
-                  placeholder="Script ResRef"
+                <ScriptResRefInput
+                  value={onExhausted}
+                  onChange={onUpdateResRefField(setOnExhausted, 'onExhausted')}
                   className="tab-ute-editor__input-monospace"
                 />
               </FormField>
@@ -413,12 +408,9 @@ export const TabUTEEditor = function(props: BaseTabProps){
                 label="OnExit"
                 info="CResRef of script to execute when a creature exits the encounter area (16 characters max)."
               >
-                <input 
-                  type="text" 
-                  maxLength={16} 
-                  value={onExit} 
-                  onChange={onUpdateResRefField(setOnExit, 'onExit')} 
-                  placeholder="Script ResRef"
+                <ScriptResRefInput
+                  value={onExit}
+                  onChange={onUpdateResRefField(setOnExit, 'onExit')}
                   className="tab-ute-editor__input-monospace"
                 />
               </FormField>
@@ -426,12 +418,9 @@ export const TabUTEEditor = function(props: BaseTabProps){
                 label="OnHeartbeat"
                 info="CResRef of script to execute on each heartbeat/update cycle (16 characters max)."
               >
-                <input 
-                  type="text" 
-                  maxLength={16} 
-                  value={onHeartbeat} 
-                  onChange={onUpdateResRefField(setOnHeartbeat, 'onHeartbeat')} 
-                  placeholder="Script ResRef"
+                <ScriptResRefInput
+                  value={onHeartbeat}
+                  onChange={onUpdateResRefField(setOnHeartbeat, 'onHeartbeat')}
                   className="tab-ute-editor__input-monospace"
                 />
               </FormField>
@@ -439,12 +428,9 @@ export const TabUTEEditor = function(props: BaseTabProps){
                 label="OnUserDefined"
                 info="CResRef of script to execute on user-defined events (16 characters max)."
               >
-                <input 
-                  type="text" 
-                  maxLength={16} 
-                  value={onUserDefined} 
-                  onChange={onUpdateResRefField(setOnUserDefined, 'onUserDefined')} 
-                  placeholder="Script ResRef"
+                <ScriptResRefInput
+                  value={onUserDefined}
+                  onChange={onUpdateResRefField(setOnUserDefined, 'onUserDefined')}
                   className="tab-ute-editor__input-monospace"
                 />
               </FormField>

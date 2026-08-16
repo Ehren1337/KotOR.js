@@ -5,7 +5,6 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabGUIEditorState, TabGUIEditorStateEventListenerTypes } from "@/apps/forge/states/tabs";
 
 import * as KotOR from "@/apps/forge/KotOR";
-// import { Form, InputGroup } from "react-bootstrap";
 import { LayoutContainer } from "@/apps/forge/components/LayoutContainer/LayoutContainer";
 import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerContext";
 import { UI3DRendererView } from "@/apps/forge/components/UI3DRendererView";

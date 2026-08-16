@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from "react";
 import * as KotOR from "@/apps/forge/KotOR";
 import { TLKSearchModal } from "@/apps/forge/components/TLKSearchModal";
+import { forgeTlkLookup, resolveDlgLineText } from "@/apps/forge/dlg/dlgLocString";
 import "@/apps/forge/components/CExoLocStringEditor/CExoLocStringEditor.scss";
 
 export interface CExoLocStringEditorProps {
   value: KotOR.CExoLocString;
   onChange: (value: KotOR.CExoLocString) => void;
   label?: string;
+  /** Optional already-resolved preview (e.g. DLG text cache). */
+  preview?: string;
 }
 
 const LANGUAGES = [
@@ -30,7 +33,8 @@ const GENDERS = [
 export const CExoLocStringEditor: React.FC<CExoLocStringEditorProps> = ({
   value,
   onChange,
-  label
+  label,
+  preview,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [resref, setResref] = useState(value.RESREF);
@@ -109,7 +113,12 @@ export const CExoLocStringEditor: React.FC<CExoLocStringEditorProps> = ({
     setExpanded(false);
   };
 
-  const displayValue = value.getValue();
+  const resolved = preview ?? resolveDlgLineText(value);
+  const hasOverride = !!(value.getString(0)?.str);
+  const displayValue = resolved
+    ? (value.RESREF > -1 && !hasOverride ? `[${value.RESREF}] ${resolved}` : resolved)
+    : "";
+  const tlkText = resref > -1 ? forgeTlkLookup(resref) : undefined;
 
   return (
     <div className="cexoloc-editor">
@@ -162,11 +171,11 @@ export const CExoLocStringEditor: React.FC<CExoLocStringEditorProps> = ({
               </label>
               
               <div className="cexoloc-resref-display">
-                {resref > -1 && KotOR.TLKManager.TLKStrings[resref] ? (
+                {resref > -1 ? (
                   <div className="cexoloc-tlk-current">
                     <div className="cexoloc-tlk-info">
                       <span className="cexoloc-tlk-index">[{resref}]</span>
-                      <span className="cexoloc-tlk-text">{KotOR.TLKManager.TLKStrings[resref].Value}</span>
+                      <span className="cexoloc-tlk-text">{tlkText || `{StrRef ${resref}}`}</span>
                     </div>
                     <div className="cexoloc-tlk-actions">
                       <button 

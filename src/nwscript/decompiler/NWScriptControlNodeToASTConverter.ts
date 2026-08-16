@@ -1,33 +1,68 @@
-import type { ControlNode, BasicBlockNode, IfNode, IfElseNode, WhileNode, DoWhileNode, ForNode, SwitchNode, SequenceNode } from "@/nwscript/decompiler/NWScriptControlStructureBuilder";
+import type { ControlNode, BasicBlockNode, IfNode, IfElseNode, WhileNode, DoWhileNode, ForNode, SwitchNode, ExpressionRegionNode } from "@/nwscript/decompiler/NWScriptControlStructureBuilder";
 import type { NWScriptControlFlowGraph } from "@/nwscript/decompiler/NWScriptControlFlowGraph";
 import type { NWScriptBasicBlock } from "@/nwscript/decompiler/NWScriptBasicBlock";
 import type { NWScriptFunction } from "@/nwscript/decompiler/NWScriptFunctionAnalyzer";
 import type { NWScriptGlobalInit } from "@/nwscript/decompiler/NWScriptGlobalVariableAnalyzer";
 import type { NWScriptLocalInit } from "@/nwscript/decompiler/NWScriptLocalVariableAnalyzer";
 import type { NWScriptControlStructureBuilder } from "@/nwscript/decompiler/NWScriptControlStructureBuilder";
-import { NWScriptAST, NWScriptASTNodeType, type NWScriptASTNode, type NWScriptProgramNode, type NWScriptFunctionNode, type NWScriptBlockNode, type NWScriptIfNode, type NWScriptIfElseNode, type NWScriptWhileNode, type NWScriptDoWhileNode, type NWScriptForNode, type NWScriptSwitchNode, type NWScriptSwitchCaseNode, type NWScriptSwitchDefaultNode, type NWScriptExpressionStatementNode, type NWScriptAssignmentNode, type NWScriptReturnNode, type NWScriptBreakNode, type NWScriptContinueNode, NWScriptGlobalVariableDeclarationNode, NWScriptVariableDeclarationNode } from "@/nwscript/decompiler/NWScriptAST";
+import { NWScriptAST, NWScriptASTNodeType, type NWScriptASTNode, type NWScriptProgramNode, type NWScriptFunctionNode, type NWScriptBlockNode, type NWScriptIfNode, type NWScriptIfElseNode, type NWScriptWhileNode, type NWScriptDoWhileNode, type NWScriptForNode, type NWScriptSwitchNode, type NWScriptSwitchCaseNode, type NWScriptSwitchDefaultNode, type NWScriptGlobalVariableDeclarationNode, type NWScriptVariableDeclarationNode } from "@/nwscript/decompiler/NWScriptAST";
 import { NWScriptExpressionBuilder } from "@/nwscript/decompiler/NWScriptExpressionBuilder";
-import { NWScriptStackSimulator } from "@/nwscript/decompiler/NWScriptStackSimulator";
+import {
+  NWScriptStackSimulator,
+  type NWScriptGlobalAggregateLayout,
+  type NWScriptStackSnapshot,
+} from "@/nwscript/decompiler/NWScriptStackSimulator";
 import { NWScriptExpression, NWScriptExpressionType } from "@/nwscript/decompiler/NWScriptExpression";
 import { NWScriptDataType } from "@/enums/nwscript/NWScriptDataType";
-import { OP_RETN, OP_JMP, OP_CPDOWNSP, OP_MOVSP, OP_RSADD, OP_CPTOPSP, OP_CPTOPBP, OP_EQUAL, OP_NEQUAL, OP_GT, OP_GEQ, OP_LT, OP_LEQ, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_LOGANDII, OP_LOGORII, OP_JSR, OP_JZ, OP_JNZ, OP_CONST, OP_ACTION } from "@/nwscript/NWScriptOPCodes";
+import { OP_RETN, OP_JMP, OP_CPDOWNSP, OP_CPDOWNBP, OP_MOVSP, OP_RSADD, OP_CPTOPSP, OP_CPTOPBP, OP_EQUAL, OP_NEQUAL, OP_GT, OP_GEQ, OP_LT, OP_LEQ, OP_ADD, OP_SUB, OP_MUL, OP_DIV, OP_LOGANDII, OP_LOGORII, OP_JSR, OP_JZ, OP_JNZ, OP_CONST, OP_ACTION, OP_STORE_STATE, OP_STORE_STATEALL, OP_RESTOREBP, OP_NOP, OP_INCISP, OP_DECISP } from "@/nwscript/NWScriptOPCodes";
 import type { NWScriptInstruction } from "@/nwscript/NWScriptInstruction";
 import { NWScriptANDChainDetector } from "@/nwscript/decompiler/NWScriptANDChainDetector";
 import { NWScriptORChainDetector } from "@/nwscript/decompiler/NWScriptORChainDetector";
-import { nwscriptDecompilerDebug } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
+import { nwscriptDecompilerDebug, nwscriptDecompilerProfileEnabled } from "@/nwscript/decompiler/NWScriptDecompilerDebug";
+import { LOGICAL_JOIN_MAX_DISTANCE } from "@/nwscript/decompiler/NWScriptShortCircuitRegion";
 import {
   buildJsrCalleeArgSlotsByEntryPc,
+  collectJsrReturnReservationAddresses,
   buildJsrUserRoutineMetaByEntryPc,
   instructionForwardStackSlotDelta,
+  nwscriptDataTypeStackBytes,
+  nwscriptParametersTotalBytes,
   type JsrUserRoutineMeta,
 } from "@/nwscript/decompiler/NWScriptArgumentStackLayout";
 import {
   buildDelayCommandThunkCalleeByActionAddress,
 } from "@/nwscript/decompiler/NWScriptStoreStateThunkSkip";
+import { getUnaryDataType, stackSlotsForByteSize, stackSlotsForDataType, toSignedInt32 } from "@/nwscript/decompiler/NWScriptOpcodeSemantics";
+import { classifyShortCircuitRegion } from "@/nwscript/decompiler/NWScriptShortCircuitRegion";
 
 type DecompJumpHint =
   | { kind: "loop"; exit: NWScriptBasicBlock | null; header: NWScriptBasicBlock | null; increment: NWScriptBasicBlock | null }
   | { kind: "switch"; exit: NWScriptBasicBlock };
+
+function vectorTriplesOverlap(leftStart: number, rightStart: number): boolean {
+  return leftStart !== rightStart && leftStart < rightStart + 3 && rightStart < leftStart + 3;
+}
+
+/**
+ * Canonical non-overlapping RSADDF triples. Size-12 CPDOWNSP stores (GetPosition rvalues)
+ * win over CPTOPSP-only copies when two 12-byte float windows overlap.
+ */
+function partitionNonOverlappingVectorStarts(
+  candidates: ReadonlyArray<{ start: number; isStore: boolean }>
+): Set<number> {
+  const sorted = [...candidates].sort((left, right) => {
+    if (left.isStore !== right.isStore) return left.isStore ? -1 : 1;
+    return left.start - right.start;
+  });
+  const accepted: number[] = [];
+  for (const candidate of sorted) {
+    if (accepted.some(start => start === candidate.start || vectorTriplesOverlap(start, candidate.start))) {
+      continue;
+    }
+    accepted.push(candidate.start);
+  }
+  return new Set(accepted);
+}
 /**
  * Converts ControlNode tree to NWScriptASTNode tree.
  * This is the bridge between the control flow structure and the abstract syntax tree.
@@ -47,7 +82,6 @@ export class NWScriptControlNodeToASTConverter {
   private functions: NWScriptFunction[];
   private globalInits: NWScriptGlobalInit[];
   private localInits: NWScriptLocalInit[];
-  private expressionBuilder: NWScriptExpressionBuilder;
   private stackSimulator: NWScriptStackSimulator;
   private andChainDetector: NWScriptANDChainDetector;
   private orChainDetector: NWScriptORChainDetector;
@@ -81,14 +115,14 @@ export class NWScriptControlNodeToASTConverter {
   
   /**
    * Map from function to the function entry stack pointer
-   * Used to calculate absolute return value position from offset
+   * Used to calculate frame-relative return-value positions.
    */
   private functionEntryStackPointers: Map<NWScriptFunction | null, number> = new Map();
   
   /**
    * Track where variables live on the stack per function
    * Maps function -> stack position -> variable index
-   * Key: stack position (absolute address where variable lives)
+   * Key: stack position relative to the bottom of the procedure frame
    * Value: variable index in localInits array
    */
   private functionVariableStackPositions: Map<NWScriptFunction | null, Map<number, number>> = new Map();
@@ -98,6 +132,42 @@ export class NWScriptControlNodeToASTConverter {
    * Maps function to the number of variables allocated so far
    */
   private functionVariableCounts: Map<NWScriptFunction | null, number> = new Map();
+
+  /** Stable local index for each RSADD site; stack positions alone can be reused by later scopes. */
+  private functionVariableAllocationIndices:
+    Map<NWScriptFunction | null, Map<number, number>> = new Map();
+
+  /** Physical RSADDF triples proven by a 12-byte frame access to represent one vector local. */
+  private functionVectorLocalAllocationIndices:
+    Map<NWScriptFunction | null, Set<number>> = new Map();
+
+  /** Allocation start → true when a size-12 CPDOWNSP store proved the window. */
+  private functionVectorLocalStartProofs:
+    Map<NWScriptFunction | null, Map<number, boolean>> = new Map();
+
+  /** First allocation index → flattened fields for synthesized local user structs. */
+  private functionStructureLocalLayouts:
+    Map<NWScriptFunction | null, Map<number, NWScriptDataType[]>> = new Map();
+
+  /** Physical global slots retain field access while whole-frame copies use one aggregate. */
+  private globalVariableMap: Map<number, { name: string; dataType: NWScriptDataType }> = new Map();
+  private globalAggregateLayouts: Map<number, NWScriptGlobalAggregateLayout> = new Map();
+
+  /** Stable synthesized source name for each distinct flattened struct layout. */
+  private structureTypeNames: Map<string, string> = new Map();
+
+  /** O3 can keep a mutable scalar directly on the stack without an RSADD declaration. */
+  private functionOptimizedScalarLocalSites: Map<
+    NWScriptFunction,
+    Map<number, {
+      stackPosition: number;
+      dataType: NWScriptDataType;
+      initialValue: string | number;
+    }>
+  > = new Map();
+
+  /** Vector frame analysis is procedure-wide and must run at most once per conversion. */
+  private vectorLocalAnalysisComplete: Set<NWScriptFunction> = new Set();
   
   /**
    * Track the current function being processed
@@ -116,8 +186,40 @@ export class NWScriptControlNodeToASTConverter {
 
   private jsrUserRoutineMetaByEntryPc: Map<number, JsrUserRoutineMeta> = new Map();
 
+  /** Caller return slots are temporaries, never source-level local declarations. */
+  private jsrReturnReservationAddresses: Set<number> = new Set();
+
   /** Prevents emitting the same CFG basic block twice when it appears multiple times in the ControlNode tree. */
   private emittedBasicBlocksInCurrentProcedure: Set<NWScriptBasicBlock> = new Set();
+
+  /** Headers whose BioWare `||` diamond has already been folded for this procedure. */
+  private consumedShortCircuitDiamondHeaders: Set<NWScriptBasicBlock> = new Set();
+
+  /** Guards `convertControlNode` against cyclic ControlNode trees. */
+  private convertingControlNodes: Set<ControlNode> = new Set();
+
+  /**
+   * Stack state immediately after a structured condition block. Condition extraction runs on a
+   * clone so it cannot replay instructions against (and corrupt) the traversal's live stack.
+   */
+  private conditionExitSnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
+
+  /** Canonical exit state for every converted block, used to make later CFG arms path-sensitive. */
+  private blockExitSnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
+
+  /** Procedure entry frames and path-independent stack dataflow cache. */
+  private functionEntrySnapshots: Map<NWScriptFunction, NWScriptStackSnapshot> = new Map();
+  private inferredBlockEntrySnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
+  private inferredBlockExitSnapshots: Map<NWScriptBasicBlock, NWScriptStackSnapshot> = new Map();
+  private inferredBlockEntryFailed: Set<NWScriptBasicBlock> = new Set();
+  private functionBodyBlocksByFunction: Map<NWScriptFunction, Set<NWScriptBasicBlock>> = new Map();
+  private inferTempSimulator: NWScriptStackSimulator | null = null;
+
+  /** Branch expression recovered while the owning basic block was evaluated exactly once. */
+  private conditionExpressions: Map<NWScriptBasicBlock, NWScriptExpression> = new Map();
+
+  /** Consumer ACTION PC → action expression stored by STORE_STATE/STORE_STATEALL. */
+  private actionThunkArgumentByActionAddress: Map<number, NWScriptExpression> = new Map();
 
   /**
    * Upper bound (exclusive) for valid `localVar_i` indices when matching CPDOWNSP to RSADD slots.
@@ -127,34 +229,549 @@ export class NWScriptControlNodeToASTConverter {
   private getDeclaredLocalSlotCount(functionContext: NWScriptFunction | null): number {
     const fromRsadd =
       functionContext != null ? this.functionVariableCounts.get(functionContext) ?? 0 : 0;
-    return Math.max(this.localInits.length, fromRsadd);
+    const fromAnalyzer = functionContext == null
+      ? 0
+      : this.localInits.filter(init =>
+        !this.jsrReturnReservationAddresses.has(init.instructionAddress) &&
+        functionContext.bodyBlocks.some(block => block.containsAddress(init.instructionAddress))
+      ).length;
+    return Math.max(fromAnalyzer, fromRsadd);
+  }
+
+  private getLocalInitsForFunction(
+    functionContext: NWScriptFunction | null
+  ): NWScriptLocalInit[] {
+    if (!functionContext) return [];
+    return this.localInits
+      .filter(init =>
+        !this.jsrReturnReservationAddresses.has(init.instructionAddress) &&
+        functionContext.bodyBlocks.some(block => block.containsAddress(init.instructionAddress))
+      )
+      .sort((left, right) => left.instructionAddress - right.instructionAddress);
+  }
+
+  /**
+   * Metadata indexed by the canonical `localVar_i` allocation order.
+   *
+   * The local initializer analyzer deliberately omits some non-canonical write patterns. It
+   * therefore cannot be indexed directly with an ID derived from all RSADD sites: doing so
+   * shifts every later type and can turn an integer INCISP target into an object or string.
+   */
+  private getLocalStackSlotsForFunction(
+    functionContext: NWScriptFunction | null
+  ): Array<{
+    offset: number;
+    dataType: NWScriptDataType;
+    hasInitializer: boolean;
+    initialValue?: any;
+  }> {
+    if (!functionContext) return [];
+    const initsByAddress = new Map(
+      this.getLocalInitsForFunction(functionContext)
+        .map(init => [init.instructionAddress, init] as const)
+    );
+    return this.collectOrderedRsaddSitesInFunction(functionContext).map(site => {
+      const init = initsByAddress.get(site.address);
+      const optimized = this.functionOptimizedScalarLocalSites
+        .get(functionContext)
+        ?.get(site.address);
+      return {
+        offset: init?.offset ?? 0,
+        dataType: site.dataType,
+        hasInitializer: init?.hasInitializer ?? optimized !== undefined,
+        initialValue: init?.initialValue ?? optimized?.initialValue,
+      };
+    });
+  }
+
+  /** Static SP-offset fallback using the same allocation IDs as source declarations. */
+  private getLocalVariableOffsetMapForFunction(
+    functionContext: NWScriptFunction
+  ): Map<number, { name: string; dataType: NWScriptDataType }> {
+    this.seedFunctionAllocationIndices(functionContext);
+    const allocationIndices = this.functionVariableAllocationIndices.get(functionContext)!;
+    const localVarMap = new Map<number, { name: string; dataType: NWScriptDataType }>();
+    for (const init of this.getLocalInitsForFunction(functionContext)) {
+      const index = allocationIndices.get(init.instructionAddress);
+      if (index === undefined) continue;
+      localVarMap.set(init.offset, {
+        name: `localVar_${index}`,
+        dataType: init.dataType,
+      });
+    }
+    return localVarMap;
+  }
+
+  /**
+   * True when this bytecode write has already been rendered as the initializer on a
+   * source-level declaration. Expression/call initializers stay as assignments because
+   * the local analyzer intentionally does not speculate about their value.
+   */
+  private isMaterializedDeclarationInitializer(
+    functionContext: NWScriptFunction | null,
+    instructionAddress: number
+  ): boolean {
+    return this.getLocalInitsForFunction(functionContext).some(init =>
+      init.initializerWriteAddress === instructionAddress &&
+      init.hasInitializer &&
+      init.initialValue !== undefined
+    );
   }
 
   private rsaddInstructionTypeToDataType(typeField: number | undefined): NWScriptDataType {
-    switch (typeField) {
-      case 3:
-        return NWScriptDataType.INTEGER;
-      case 4:
-        return NWScriptDataType.FLOAT;
-      case 5:
-        return NWScriptDataType.STRING;
-      case 6:
-        return NWScriptDataType.OBJECT;
-      case 0x10:
-        return NWScriptDataType.EFFECT;
-      case 0x11:
-        return NWScriptDataType.EVENT;
-      case 0x12:
-        return NWScriptDataType.LOCATION;
-      case 0x13:
-        return NWScriptDataType.TALENT;
-      case 0x14:
-        return NWScriptDataType.VECTOR;
-      case 0x24:
-        return NWScriptDataType.STRUCTURE;
-      default:
-        return NWScriptDataType.INTEGER;
+    return getUnaryDataType(typeField) ?? NWScriptDataType.INTEGER;
+  }
+
+  private registerLocalAllocation(
+    functionContext: NWScriptFunction | null,
+    instructionAddress: number,
+    stackPosition: number
+  ): number {
+    let positions = this.functionVariableStackPositions.get(functionContext);
+    if (!positions) {
+      positions = new Map();
+      this.functionVariableStackPositions.set(functionContext, positions);
     }
+
+    let allocationIndices = this.functionVariableAllocationIndices.get(functionContext);
+    if (!allocationIndices) {
+      allocationIndices = new Map();
+      this.functionVariableAllocationIndices.set(functionContext, allocationIndices);
+    }
+
+    let index = allocationIndices.get(instructionAddress);
+    if (index === undefined) {
+      index = this.functionVariableCounts.get(functionContext) ?? 0;
+      allocationIndices.set(instructionAddress, index);
+      this.functionVariableCounts.set(functionContext, index + 1);
+    }
+    positions.set(stackPosition, index);
+    return index;
+  }
+
+  /**
+   * Recover mutable O3 stack slots whose initial CONST replaces the usual RSADD/CPDOWNSP pair.
+   * The slot is accepted only when every reachable definition at that physical depth names the
+   * same scalar constant producer and an INCISP/DECISP proves that it is mutable storage.
+   */
+  private inferOptimizedScalarLocalSites(func: NWScriptFunction): void {
+    if (this.functionOptimizedScalarLocalSites.has(func)) return;
+    const recovered = new Map<number, {
+      stackPosition: number;
+      dataType: NWScriptDataType;
+      initialValue: string | number;
+    }>();
+    this.functionOptimizedScalarLocalSites.set(func, recovered);
+
+    const body = new Set(func.bodyBlocks);
+    const entrySlots = nwscriptParametersTotalBytes(func.parameters) / 4 +
+      (func.returnStackSlots ?? stackSlotsForDataType(func.returnType));
+    const deltaFor = (instruction: NWScriptInstruction): number | null => {
+      if (instruction.code === OP_JSR && instruction.offset !== undefined) {
+        return -(
+          this.jsrCalleeArgSlotsByEntryPc.get(
+            instruction.address + toSignedInt32(instruction.offset)
+          ) ?? 0
+        );
+      }
+      return instructionForwardStackSlotDelta(instruction);
+    };
+
+    const entries = new Map<NWScriptBasicBlock, number | null>([
+      [func.entryBlock, entrySlots],
+    ]);
+    const queue: NWScriptBasicBlock[] = [func.entryBlock];
+    while (queue.length > 0) {
+      const block = queue.shift()!;
+      const entry = entries.get(block);
+      if (entry === undefined || entry === null) continue;
+      let depth = entry;
+      let known = true;
+      for (const instruction of block.instructions) {
+        const delta = deltaFor(instruction);
+        if (delta === null || depth + delta < 0) {
+          known = false;
+          break;
+        }
+        depth += delta;
+      }
+      if (!known) continue;
+      for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
+        if (!body.has(successor)) continue;
+        const current = entries.get(successor);
+        if (current === undefined) {
+          entries.set(successor, depth);
+          queue.push(successor);
+        } else if (current !== null && current !== depth) {
+          entries.set(successor, null);
+        }
+      }
+    }
+
+    const mutableSlots = new Set<number>();
+    const constantProducers = new Map<number, NWScriptInstruction[]>();
+    for (const block of func.bodyBlocks) {
+      const entry = entries.get(block);
+      if (entry === undefined || entry === null) continue;
+      let depth = entry;
+      for (const instruction of block.instructions) {
+        if (
+          (instruction.code === OP_INCISP || instruction.code === OP_DECISP) &&
+          instruction.offset !== undefined
+        ) {
+          const offset = toSignedInt32(instruction.offset);
+          if (offset % 4 === 0) mutableSlots.add(depth + offset / 4);
+        }
+        if (instruction.code === OP_CONST) {
+          const producers = constantProducers.get(depth) ?? [];
+          producers.push(instruction);
+          constantProducers.set(depth, producers);
+        }
+        const delta = deltaFor(instruction);
+        if (delta === null || depth + delta < 0) break;
+        depth += delta;
+      }
+    }
+
+    for (const slot of mutableSlots) {
+      if (slot < entrySlots) continue;
+      const producers = constantProducers.get(slot) ?? [];
+      const unique = Array.from(new Map(
+        producers.map(producer => [producer.address, producer] as const)
+      ).values());
+      if (unique.length !== 1) continue;
+      const producer = unique[0];
+      const dataType = getUnaryDataType(producer.type);
+      if (
+        dataType !== NWScriptDataType.INTEGER &&
+        dataType !== NWScriptDataType.FLOAT &&
+        dataType !== NWScriptDataType.STRING &&
+        dataType !== NWScriptDataType.OBJECT
+      ) continue;
+      const initialValue = dataType === NWScriptDataType.INTEGER
+        ? producer.integer
+        : dataType === NWScriptDataType.FLOAT
+          ? producer.float
+          : dataType === NWScriptDataType.STRING
+            ? producer.string
+            : producer.object;
+      if (typeof initialValue !== 'string' && typeof initialValue !== 'number') continue;
+      recovered.set(producer.address, {
+        stackPosition: slot * 4,
+        dataType,
+        initialValue,
+      });
+    }
+  }
+
+  private seedFunctionAllocationIndices(func: NWScriptFunction): void {
+    if (this.functionVariableAllocationIndices.has(func)) return;
+    this.inferOptimizedScalarLocalSites(func);
+    const sites = this.collectOrderedRsaddSitesInFunction(func);
+    const allocationIndices = new Map(
+      sites.map((site, index) => [site.address, index])
+    );
+    this.functionVariableAllocationIndices.set(func, allocationIndices);
+    this.functionVariableCounts.set(func, sites.length);
+    let positions = this.functionVariableStackPositions.get(func);
+    if (!positions) {
+      positions = new Map();
+      this.functionVariableStackPositions.set(func, positions);
+    }
+    for (const [address, site] of this.functionOptimizedScalarLocalSites.get(func) ?? []) {
+      const index = allocationIndices.get(address);
+      if (index !== undefined) positions.set(site.stackPosition, index);
+    }
+  }
+
+  private getLocalAllocationIndicesForFunction(
+    functionContext: NWScriptFunction | null
+  ): Map<number, number> {
+    if (!functionContext) return new Map();
+    this.seedFunctionAllocationIndices(functionContext);
+    return this.functionVariableAllocationIndices.get(functionContext)!;
+  }
+
+  private registerVectorLocalAtStackPosition(
+    functionContext: NWScriptFunction | null,
+    stackPosition: number,
+    positions: Map<number, number>,
+    isStore: boolean
+  ): void {
+    const first = positions.get(stackPosition);
+    if (
+      first === undefined ||
+      positions.get(stackPosition + 4) !== first + 1 ||
+      positions.get(stackPosition + 8) !== first + 2 ||
+      this.getLocalStackSlotsForFunction(functionContext)
+        .slice(first, first + 3)
+        .some(slot => slot.dataType !== NWScriptDataType.FLOAT)
+    ) {
+      return;
+    }
+    this.addVectorLocalStartProof(functionContext, first, isStore);
+    this.stackSimulator.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(functionContext)
+    );
+  }
+
+  private addVectorLocalStartProof(
+    functionContext: NWScriptFunction | null,
+    start: number,
+    isStore: boolean
+  ): void {
+    let proofs = this.functionVectorLocalStartProofs.get(functionContext);
+    if (!proofs) {
+      proofs = new Map();
+      this.functionVectorLocalStartProofs.set(functionContext, proofs);
+    }
+    proofs.set(start, proofs.get(start) === true || isStore);
+    this.rebuildCanonicalVectorStarts(functionContext);
+  }
+
+  private rebuildCanonicalVectorStarts(functionContext: NWScriptFunction | null): void {
+    const proofs = this.functionVectorLocalStartProofs.get(functionContext) ?? new Map();
+    const canonical = partitionNonOverlappingVectorStarts(
+      [...proofs.entries()].map(([start, isStore]) => ({ start, isStore }))
+    );
+    this.functionVectorLocalAllocationIndices.set(functionContext, canonical);
+    this.pruneStructureLayoutsOverlappingVectors(functionContext, canonical);
+  }
+
+  /**
+   * A size-12 float store (GetPosition) is a vector local. An overlapping mixed-type copy
+   * must not remain a synthesized struct that swallows the vector's first slot.
+   */
+  private pruneStructureLayoutsOverlappingVectors(
+    functionContext: NWScriptFunction | null,
+    vectorStarts: ReadonlySet<number>
+  ): void {
+    const layouts = this.getStructureLocalLayouts(functionContext);
+    for (const [structStart, fields] of [...layouts]) {
+      const structEnd = structStart + fields.length;
+      const overlaps = [...vectorStarts].some(start =>
+        start < structEnd && structStart < start + 3
+      );
+      if (overlaps) {
+        layouts.delete(structStart);
+      }
+    }
+  }
+
+  private getVectorLocalAllocationStarts(
+    functionContext: NWScriptFunction | null
+  ): Set<number> {
+    let starts = this.functionVectorLocalAllocationIndices.get(functionContext);
+    if (!starts) {
+      starts = new Set();
+      this.functionVectorLocalAllocationIndices.set(functionContext, starts);
+    }
+    return starts;
+  }
+
+  private getStructureLocalLayouts(
+    functionContext: NWScriptFunction | null
+  ): Map<number, NWScriptDataType[]> {
+    let layouts = this.functionStructureLocalLayouts.get(functionContext);
+    if (!layouts) {
+      layouts = new Map();
+      this.functionStructureLocalLayouts.set(functionContext, layouts);
+    }
+    return layouts;
+  }
+
+  private getStructureTypeName(fieldTypes: NWScriptDataType[]): string {
+    const signature = fieldTypes.join(',');
+    let name = this.structureTypeNames.get(signature);
+    if (!name) {
+      name = `decompiled_struct_${this.structureTypeNames.size}`;
+      this.structureTypeNames.set(signature, name);
+    }
+    return name;
+  }
+
+  /**
+   * Prove vector locals before source emission.
+   *
+   * Runtime discovery at a 12-byte CPTOP/CPDOWN is too late when an uninitialized vector's
+   * `.x/.y/.z` fields are assigned individually first. This small physical-frame dataflow tracks
+   * which RSADD allocation occupies each dword and records any contiguous float triple later
+   * accessed as a 12-byte value. Values/expressions are intentionally ignored; only stack shape
+   * and allocation identity matter.
+   */
+  private precomputeVectorLocalAllocationStarts(func: NWScriptFunction): void {
+    if (this.vectorLocalAnalysisComplete.has(func)) return;
+    this.vectorLocalAnalysisComplete.add(func);
+    this.seedFunctionAllocationIndices(func);
+    const allocationIndices = this.functionVariableAllocationIndices.get(func)!;
+    const localSlots = this.getLocalStackSlotsForFunction(func);
+    const body = new Set(func.bodyBlocks);
+    type FrameState = Array<number | null>;
+
+    const transfer = (
+      input: FrameState,
+      instruction: NWScriptInstruction
+    ): FrameState | null => {
+      const state = [...input];
+      if (instruction.code === OP_RSADD) {
+        state.push(
+          this.jsrReturnReservationAddresses.has(instruction.address)
+            ? null
+            : allocationIndices.get(instruction.address) ?? null
+        );
+        return state;
+      }
+
+      let delta: number | null;
+      if (instruction.code === OP_JSR && instruction.offset !== undefined) {
+        delta = -(
+          this.jsrCalleeArgSlotsByEntryPc.get(
+            instruction.address + toSignedInt32(instruction.offset)
+          ) ?? 0
+        );
+      } else {
+        delta = instructionForwardStackSlotDelta(instruction);
+      }
+      if (delta === null || state.length + delta < 0) return null;
+      if (delta < 0) state.splice(state.length + delta, -delta);
+      else for (let slot = 0; slot < delta; slot += 1) state.push(null);
+      return state;
+    };
+
+    const merge = (left: FrameState, right: FrameState): FrameState | null => {
+      if (left.length !== right.length) return null;
+      return left.map((allocation, index) =>
+        allocation === right[index] ? allocation : null
+      );
+    };
+    const same = (left: FrameState, right: FrameState): boolean =>
+      left.length === right.length &&
+      left.every((allocation, index) => allocation === right[index]);
+
+    const entrySlots =
+      nwscriptParametersTotalBytes(func.parameters) / 4 +
+      (func.returnStackSlots ?? stackSlotsForDataType(func.returnType));
+    const entries = new Map<NWScriptBasicBlock, FrameState>([
+      [
+        func.entryBlock,
+        new Array<number | null>(entrySlots).fill(null),
+      ],
+    ]);
+    const queue: NWScriptBasicBlock[] = [func.entryBlock];
+    while (queue.length > 0) {
+      const block = queue.shift()!;
+      let exit: FrameState | null = entries.get(block) ?? null;
+      if (!exit) continue;
+      for (const instruction of block.instructions) {
+        exit = transfer(exit, instruction);
+        if (!exit) break;
+      }
+      if (!exit) continue;
+      for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
+        if (!body.has(successor)) continue;
+        const current = entries.get(successor);
+        if (!current) {
+          entries.set(successor, [...exit]);
+          queue.push(successor);
+          continue;
+        }
+        const merged = merge(current, exit);
+        if (merged && !same(current, merged)) {
+          entries.set(successor, merged);
+          queue.push(successor);
+        }
+      }
+    }
+
+    for (const block of func.bodyBlocks) {
+      let state: FrameState | null = entries.get(block) ?? null;
+      if (!state) continue;
+      for (const instruction of block.instructions) {
+        if (
+          (instruction.code === OP_CPTOPSP || instruction.code === OP_CPDOWNSP) &&
+          (instruction.size ?? 0) > 4
+        ) {
+          const offset = toSignedInt32(instruction.offset);
+          if (offset % 4 === 0) {
+            const target = state.length + offset / 4;
+            const first = state[target];
+            const slots = (instruction.size ?? 0) / 4;
+            const fieldTypes = first === null || first === undefined
+              ? []
+              : localSlots
+                  .slice(first, first + slots)
+                  .map(slot => slot.dataType);
+            if (
+              first !== null &&
+              first !== undefined &&
+              state
+                .slice(target, target + slots)
+                .every((allocation, field) => allocation === first + field) &&
+              fieldTypes.length === slots
+            ) {
+              if (
+                slots === 3 &&
+                fieldTypes.every(dataType => dataType === NWScriptDataType.FLOAT)
+              ) {
+                this.addVectorLocalStartProof(func, first, instruction.code === OP_CPDOWNSP);
+              } else {
+                this.getStructureLocalLayouts(func).set(first, fieldTypes);
+              }
+            }
+          }
+        }
+        state = transfer(state, instruction);
+        if (!state) break;
+      }
+    }
+    this.pruneStructureLayoutsOverlappingVectors(
+      func,
+      this.getVectorLocalAllocationStarts(func)
+    );
+  }
+
+  /** Resolve one physical local slot to its source-level name, including vector fields. */
+  private getLocalSlotSourceName(
+    functionContext: NWScriptFunction | null,
+    allocationIndex: number,
+    wholeAggregate = false
+  ): string {
+    for (const vectorStart of this.getVectorLocalAllocationStarts(functionContext)) {
+      if (allocationIndex >= vectorStart && allocationIndex < vectorStart + 3) {
+        if (wholeAggregate) {
+          return `localVar_${vectorStart}`;
+        }
+        const component = ['x', 'y', 'z'][allocationIndex - vectorStart];
+        return `localVar_${vectorStart}.${component}`;
+      }
+    }
+    for (const [structureStart, fields] of this.getStructureLocalLayouts(functionContext)) {
+      if (
+        allocationIndex >= structureStart &&
+        allocationIndex < structureStart + fields.length
+      ) {
+        const field = allocationIndex - structureStart;
+        return wholeAggregate && allocationIndex === structureStart
+          ? `localVar_${structureStart}`
+          : `localVar_${structureStart}.field_${field}`;
+      }
+    }
+    return `localVar_${allocationIndex}`;
+  }
+
+  /** Reinterpret flattened physical fields when the surrounding ABI supplies nominal type. */
+  private expressionForExpectedType(
+    expression: NWScriptExpression | undefined,
+    expectedType: NWScriptDataType
+  ): NWScriptExpression | undefined {
+    if (
+      expression?.type === NWScriptExpressionType.AGGREGATE &&
+      expectedType === NWScriptDataType.VECTOR &&
+      expression.components.length === 3
+    ) {
+      return NWScriptExpression.vector(expression.components);
+    }
+    return expression;
   }
 
   /**
@@ -170,7 +787,10 @@ export class NWScriptControlNodeToASTConverter {
     );
     for (const block of blocks) {
       for (const instr of block.instructions) {
-        if (instr.code === OP_RSADD) {
+        if (
+          instr.code === OP_RSADD &&
+          !this.jsrReturnReservationAddresses.has(instr.address)
+        ) {
           out.push({
             address: instr.address,
             dataType: this.rsaddInstructionTypeToDataType(instr.type),
@@ -178,7 +798,10 @@ export class NWScriptControlNodeToASTConverter {
         }
       }
     }
-    return out;
+    for (const [address, site] of this.functionOptimizedScalarLocalSites.get(func) ?? []) {
+      out.push({ address, dataType: site.dataType });
+    }
+    return out.sort((left, right) => left.address - right.address);
   }
 
   constructor(
@@ -192,70 +815,378 @@ export class NWScriptControlNodeToASTConverter {
     this.globalInits = globalInits;
     this.localInits = localInits;
     
-    // Initialize expression builder and stack simulator with variable mappings
-    this.expressionBuilder = new NWScriptExpressionBuilder();
+    // Stack and expression recovery share NWScriptStackSimulator's canonical opcode semantics.
     this.stackSimulator = new NWScriptStackSimulator();
     this.andChainDetector = new NWScriptANDChainDetector();
     this.orChainDetector = new NWScriptORChainDetector();
 
     this.jsrCalleeArgSlotsByEntryPc = buildJsrCalleeArgSlotsByEntryPc(functions, cfg.script);
     this.jsrUserRoutineMetaByEntryPc = buildJsrUserRoutineMetaByEntryPc(functions);
+    this.jsrReturnReservationAddresses = collectJsrReturnReservationAddresses(functions, cfg.script);
     this.stackSimulator.setJsrCalleeArgSlotsByEntryPc(this.jsrCalleeArgSlotsByEntryPc);
     this.stackSimulator.setJsrUserRoutineMetaByEntryPc(this.jsrUserRoutineMetaByEntryPc);
-    this.expressionBuilder.setJsrCalleeArgSlotsByEntryPc(this.jsrCalleeArgSlotsByEntryPc);
-    this.expressionBuilder.setJsrUserRoutineMetaByEntryPc(this.jsrUserRoutineMetaByEntryPc);
 
-    const delayThunks = buildDelayCommandThunkCalleeByActionAddress(
+    this.actionThunkArgumentByActionAddress = buildDelayCommandThunkCalleeByActionAddress(
       cfg.script,
       functions,
       (instr) =>
         instr.actionDefinition?.name === "DelayCommand" || instr.action === 7
     );
-    this.stackSimulator.setDelayCommandThunkSecondArg(delayThunks);
+    this.stackSimulator.setActionThunkArgumentByActionAddress(
+      this.actionThunkArgumentByActionAddress
+    );
     
-    this.setupVariableMappings();
     this.buildBlockToFunctionMap();
+    this.inferGlobalAggregateLayouts();
+    this.setupVariableMappings();
   }
 
-  private createTempStackSimulator(): NWScriptStackSimulator {
+  private createTempStackSimulator(
+    functionContext: NWScriptFunction | null = null
+  ): NWScriptStackSimulator {
     const s = new NWScriptStackSimulator();
     s.setJsrCalleeArgSlotsByEntryPc(this.jsrCalleeArgSlotsByEntryPc);
     s.setJsrUserRoutineMetaByEntryPc(this.jsrUserRoutineMetaByEntryPc);
+    s.setGlobalVariables(this.globalVariableMap);
+    s.setGlobalAggregateLayouts(this.globalAggregateLayouts);
+    s.setVariableTypeObserver(this.parameterTypeObserver(functionContext));
     return s;
   }
 
-  private createTempExpressionBuilder(): NWScriptExpressionBuilder {
+  private createConfiguredTempStackSimulator(
+    functionContext: NWScriptFunction | null,
+    entry: NWScriptStackSnapshot
+  ): NWScriptStackSimulator {
+    const simulator = this.createTempStackSimulator(functionContext);
+    this.configureTempStackSimulator(simulator, functionContext, entry);
+    return simulator;
+  }
+
+  private configureTempStackSimulator(
+    simulator: NWScriptStackSimulator,
+    functionContext: NWScriptFunction | null,
+    entry: NWScriptStackSnapshot
+  ): void {
+    if (functionContext) {
+      simulator.setFunctionParameters(functionContext.parameters);
+    }
+    simulator.setGlobalVariables(this.stackSimulator.getGlobalVariables());
+    simulator.setGlobalAggregateLayouts(this.globalAggregateLayouts);
+    simulator.setLocalVariables(this.stackSimulator.getLocalVariables());
+    simulator.setVariableStackPositions(
+      this.functionVariableStackPositions.get(functionContext) ?? new Map()
+    );
+    simulator.setLocalVariableAllocationIndices(
+      this.getLocalAllocationIndicesForFunction(functionContext)
+    );
+    simulator.setLocalVariableInits(this.getLocalStackSlotsForFunction(functionContext));
+    simulator.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(functionContext)
+    );
+    simulator.setStructureLocalLayouts(
+      this.getStructureLocalLayouts(functionContext)
+    );
+    simulator.setActionThunkArgumentByActionAddress(
+      this.actionThunkArgumentByActionAddress
+    );
+    simulator.setJsrCalleeArgSlotsByEntryPc(this.jsrCalleeArgSlotsByEntryPc);
+    simulator.setJsrUserRoutineMetaByEntryPc(this.jsrUserRoutineMetaByEntryPc);
+    simulator.restoreStackSnapshot(entry);
+  }
+
+  private getFunctionBodyBlocks(functionContext: NWScriptFunction): Set<NWScriptBasicBlock> {
+    let body = this.functionBodyBlocksByFunction.get(functionContext);
+    if (!body) {
+      body = new Set(functionContext.bodyBlocks);
+      this.functionBodyBlocksByFunction.set(functionContext, body);
+    }
+    return body;
+  }
+
+  private simulateBlockExit(
+    functionContext: NWScriptFunction | null,
+    entry: NWScriptStackSnapshot,
+    block: NWScriptBasicBlock
+  ): NWScriptStackSnapshot {
+    if (!this.inferTempSimulator) {
+      this.inferTempSimulator = this.createTempStackSimulator(functionContext);
+    }
+    this.configureTempStackSimulator(this.inferTempSimulator, functionContext, entry);
+    for (const instruction of block.instructions) {
+      this.inferTempSimulator.processInstruction(instruction);
+    }
+    return this.inferTempSimulator.takeStackSnapshot();
+  }
+
+  private recoverStoreStateThunk(
+    storeState: NWScriptInstruction,
+    functionContext: NWScriptFunction | null
+  ): void {
+    const visited = new Set<number>();
+    const recover = (
+      nestedStoreState: NWScriptInstruction,
+      entry: NWScriptStackSnapshot
+    ): void => {
+      if (visited.has(nestedStoreState.address)) return;
+      visited.add(nestedStoreState.address);
+
+      const jump = nestedStoreState.nextInstr;
+      if (!jump || jump.code !== OP_JMP || jump.offset === undefined) return;
+      const targetAddress = jump.address + toSignedInt32(jump.offset);
+      let consumer = this.cfg.script.instructions.get(targetAddress);
+      while (consumer && consumer.code !== OP_RETN) {
+        if (
+          consumer.code === OP_ACTION &&
+          consumer.actionDefinition?.args.includes(NWScriptDataType.ACTION)
+        ) {
+          break;
+        }
+        consumer = consumer.nextInstr;
+      }
+      if (
+        !consumer ||
+        consumer.code !== OP_ACTION ||
+        !consumer.actionDefinition?.args.includes(NWScriptDataType.ACTION)
+      ) {
+        return;
+      }
+
+      const simulator = this.createConfiguredTempStackSimulator(functionContext, entry);
+      let recovered: NWScriptExpression | null = null;
+      let instruction = jump.nextInstr;
+      while (instruction && instruction.address < targetAddress) {
+        if (
+          instruction.code === OP_STORE_STATE ||
+          instruction.code === OP_STORE_STATEALL
+        ) {
+          recover(instruction, simulator.takeStackSnapshot());
+          simulator.setActionThunkArgumentByActionAddress(
+            this.actionThunkArgumentByActionAddress
+          );
+        }
+        const expression = simulator.processInstruction(instruction);
+        if (expression?.type === NWScriptExpressionType.FUNCTION_CALL) {
+          recovered = expression;
+        }
+        instruction = instruction.nextInstr;
+      }
+      if (recovered) {
+        this.actionThunkArgumentByActionAddress.set(consumer.address, recovered);
+        this.stackSimulator.setActionThunkArgumentByActionAddress(
+          this.actionThunkArgumentByActionAddress
+        );
+      }
+    };
+
+    recover(storeState, this.stackSimulator.takeStackSnapshot());
+  }
+
+  private createTempExpressionBuilder(
+    functionContext: NWScriptFunction | null = null
+  ): NWScriptExpressionBuilder {
     const e = new NWScriptExpressionBuilder();
     e.setJsrCalleeArgSlotsByEntryPc(this.jsrCalleeArgSlotsByEntryPc);
     e.setJsrUserRoutineMetaByEntryPc(this.jsrUserRoutineMetaByEntryPc);
+    e.setGlobalVariables(this.globalVariableMap);
+    e.setGlobalAggregateLayouts(this.globalAggregateLayouts);
+    e.setVariableTypeObserver(this.parameterTypeObserver(functionContext));
     return e;
+  }
+
+  private parameterTypeObserver(
+    functionContext: NWScriptFunction | null
+  ): ((name: string, dataType: NWScriptDataType) => void) | undefined {
+    if (!functionContext) return undefined;
+    return (name, dataType) => {
+      const parameter = functionContext.parameters.find(candidate => candidate.name === name);
+      if (!parameter || parameter.dataType === dataType) return;
+      if (
+        parameter.dataType === NWScriptDataType.INTEGER &&
+        stackSlotsForDataType(parameter.dataType) === stackSlotsForDataType(dataType)
+      ) {
+        // Keep the existing identifier stable: statements already emitted earlier in this
+        // procedure may refer to it, and parameter names have no semantic type requirement.
+        parameter.dataType = dataType;
+      }
+    };
+  }
+
+  /** Consume JZ/JNZ only when the canonical stack actually holds the recovered condition. */
+  private consumeStructuredCondition(
+    conditionNode: ControlNode,
+    condition: NWScriptExpression
+  ): void {
+    if (conditionNode.type !== 'basic_block' || !conditionNode.block.conditionInstruction) {
+      return;
+    }
+
+    const simulatedExit = this.conditionExitSnapshots.get(conditionNode.block);
+    if (simulatedExit) {
+      this.stackSimulator.restoreStackSnapshot(simulatedExit);
+      return;
+    }
+
+    const top = this.stackSimulator.peek();
+    if (
+      top?.slotWidth === 1 &&
+      top.expression.dataType === condition.dataType &&
+      top.expression.toNSS() === condition.toNSS()
+    ) {
+      this.stackSimulator.processInstruction(conditionNode.block.conditionInstruction);
+    }
+  }
+
+  private convertBranchFromSnapshot(
+    node: ControlNode,
+    functionContext: NWScriptFunction | null,
+    entry: NWScriptStackSnapshot
+  ): { body: NWScriptBlockNode; exit: NWScriptStackSnapshot } {
+    this.stackSimulator.restoreStackSnapshot(entry);
+    const body = this.convertControlNodeToBlock(node, functionContext);
+    return { body, exit: this.stackSimulator.takeStackSnapshot() };
+  }
+
+  private restoreControlFlowJoin(
+    exits: NWScriptStackSnapshot[],
+    context: string,
+    fallback: NWScriptStackSnapshot
+  ): void {
+    const merged = this.stackSimulator.mergeStackSnapshots(exits, context, fallback);
+    this.stackSimulator.restoreStackSnapshot(merged);
   }
 
   /**
    * Setup variable mappings for expression builder and stack simulator
    */
-  private setupVariableMappings(): void {
-    // Setup global variables
-    const globalVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-    for (let i = 0; i < this.globalInits.length; i++) {
-      const init = this.globalInits[i];
-      const varName = `globalVar_${i}`;
-      const offsetSigned = init.offset > 0x7FFFFFFF ? init.offset - 0x100000000 : init.offset;
-      globalVarMap.set(offsetSigned, { name: varName, dataType: init.dataType });
+  private inferGlobalAggregateLayouts(): void {
+    this.globalAggregateLayouts.clear();
+    const initByOffset = new Map(
+      this.globalInits.map(init => [toSignedInt32(init.offset), init] as const)
+    );
+    const candidates = new Map<number, NWScriptGlobalAggregateLayout>();
+
+    for (const init of this.globalInits) {
+      const slots = init.initializerStackSlots ?? 0;
+      const expression = init.initialExpression;
+      if (!expression || slots <= 1) continue;
+      const startOffset = toSignedInt32(init.offset);
+      const firstIndex = this.globalInits.indexOf(init);
+      if (expression.dataType === NWScriptDataType.VECTOR && slots === 3) {
+        candidates.set(startOffset, {
+          name: `globalVar_${firstIndex}`,
+          dataType: NWScriptDataType.VECTOR,
+          fieldTypes: [
+            NWScriptDataType.FLOAT,
+            NWScriptDataType.FLOAT,
+            NWScriptDataType.FLOAT,
+          ],
+        });
+      } else if (
+        expression.dataType === NWScriptDataType.STRUCTURE &&
+        expression.structureFieldTypes.length === slots
+      ) {
+        candidates.set(startOffset, {
+          name: `globalVar_${firstIndex}`,
+          dataType: NWScriptDataType.STRUCTURE,
+          fieldTypes: expression.structureFieldTypes,
+        });
+      }
     }
-    this.expressionBuilder.setGlobalVariables(globalVarMap);
-    this.stackSimulator.setGlobalVariables(globalVarMap);
+
+    for (const func of this.functions) {
+      for (const block of func.bodyBlocks) {
+        for (const instruction of block.instructions) {
+          if (
+            (instruction.code !== OP_CPTOPBP && instruction.code !== OP_CPDOWNBP) ||
+            (instruction.size ?? 0) <= 4 ||
+            (instruction.size ?? 0) % 4 !== 0 ||
+            instruction.offset === undefined
+          ) {
+            continue;
+          }
+
+          const startOffset = toSignedInt32(instruction.offset);
+          const slots = (instruction.size ?? 0) / 4;
+          const isFormalAccess = func.parameters.some(parameter =>
+            !parameter.resolvedViaSpOperand &&
+            parameter.offset === startOffset &&
+            (parameter.stackSlots ?? stackSlotsForDataType(parameter.dataType)) === slots
+          );
+          if (isFormalAccess) continue;
+
+          const fields = Array.from({ length: slots }, (_, field) =>
+            initByOffset.get(startOffset + field * 4)
+          );
+          if (fields.some(field => field === undefined)) continue;
+
+          const fieldTypes = fields.map(field => field!.dataType);
+          const firstIndex = this.globalInits.indexOf(fields[0]!);
+          const dataType = slots === 3 && fieldTypes.every(type => type === NWScriptDataType.FLOAT)
+            ? NWScriptDataType.VECTOR
+            : NWScriptDataType.STRUCTURE;
+          const current = candidates.get(startOffset);
+          if (!current || current.fieldTypes.length < slots) {
+            candidates.set(startOffset, {
+              name: `globalVar_${firstIndex}`,
+              dataType,
+              fieldTypes,
+            });
+          }
+        }
+      }
+    }
+
+    const claimedOffsets = new Set<number>();
+    for (const [startOffset, candidate] of Array.from(candidates.entries()).sort(
+      ([left], [right]) => left - right
+    )) {
+      const offsets = candidate.fieldTypes.map((_, field) => startOffset + field * 4);
+      if (offsets.some(offset => claimedOffsets.has(offset))) continue;
+      this.globalAggregateLayouts.set(startOffset, candidate);
+      offsets.forEach(offset => claimedOffsets.add(offset));
+    }
+  }
+
+  private buildGlobalVariableMap(): Map<number, { name: string; dataType: NWScriptDataType }> {
+    const result = new Map<number, { name: string; dataType: NWScriptDataType }>();
+    for (let index = 0; index < this.globalInits.length; index++) {
+      const init = this.globalInits[index];
+      const offset = toSignedInt32(init.offset);
+      const aggregateEntry = Array.from(this.globalAggregateLayouts.entries()).find(
+        ([start, layout]) =>
+          offset >= start && offset < start + layout.fieldTypes.length * 4
+      );
+      if (!aggregateEntry) {
+        result.set(offset, { name: `globalVar_${index}`, dataType: init.dataType });
+        continue;
+      }
+
+      const [start, aggregate] = aggregateEntry;
+      const field = (offset - start) / 4;
+      const suffix = aggregate.dataType === NWScriptDataType.VECTOR
+        ? `.${['x', 'y', 'z'][field]}`
+        : `.field_${field}`;
+      result.set(offset, {
+        name: `${aggregate.name}${suffix}`,
+        dataType: aggregate.fieldTypes[field] ?? init.dataType,
+      });
+    }
+    return result;
+  }
+
+  private setupVariableMappings(): void {
+    this.globalVariableMap = this.buildGlobalVariableMap();
+    this.stackSimulator.setGlobalVariables(this.globalVariableMap);
+    this.stackSimulator.setGlobalAggregateLayouts(this.globalAggregateLayouts);
     
     // Setup local variables (per function)
     // This will be done per-function when processing
   }
 
   /**
-   * Set function parameters for expression builder and stack simulator
+   * Set function parameters for stack-aware expression recovery.
    */
   private setFunctionParametersForBuilders(func: NWScriptFunction): void {
-    // Both ExpressionBuilder and StackSimulator expect an array
-    this.expressionBuilder.setFunctionParameters(func.parameters);
     this.stackSimulator.setFunctionParameters(func.parameters);
   }
 
@@ -327,19 +1258,34 @@ export class NWScriptControlNodeToASTConverter {
    * @param structureBuilder The structure builder (needed to build ControlNode trees for functions)
    */
   convertToAST(mainControlNode: ControlNode, structureBuilder: NWScriptControlStructureBuilder): NWScriptProgramNode {
-    // Build global variable declarations
-    const globalVars = this.buildGlobalVariableDeclarations();
-    
-    // Build function nodes (including main function)
-    // The main function should be output as a function, not as mainBody
+    if (nwscriptDecompilerProfileEnabled()) {
+      console.log(`[NWScriptDecompiler] ast functions=${this.functions.length}`);
+    }
     const functionNodes = this.buildFunctionNodes(structureBuilder, mainControlNode);
+
+    // Function conversion can contribute aggregate type evidence, so emit globals afterwards.
+    const globalVars = this.buildGlobalVariableDeclarations();
     
     // Main body should only be used if there's code outside of functions
     // For now, we'll leave it undefined since all code is in functions
     const mainBody: NWScriptBlockNode | undefined = undefined;
     
     // Create program node
-    const program = NWScriptAST.createProgram(globalVars, functionNodes, mainBody);
+    const structs = Array.from(this.structureTypeNames.entries()).map(
+      ([signature, name]) => ({
+        name,
+        fields: signature.split(',').filter(Boolean).map((encoded, field) => ({
+          name: `field_${field}`,
+          type: Number.parseInt(encoded, 10) as NWScriptDataType,
+        })),
+      })
+    );
+    const program = NWScriptAST.createProgram(
+      globalVars,
+      functionNodes,
+      mainBody,
+      structs
+    );
     
     // Build parent relationships
     NWScriptAST.buildParentRelationships(program);
@@ -361,6 +1307,8 @@ export class NWScriptControlNodeToASTConverter {
       this.stackSimulator.clear();
       this.functionStackInitialized.delete(functionContext);
       this.emittedBasicBlocksInCurrentProcedure.clear();
+      this.consumedShortCircuitDiamondHeaders.clear();
+      this.convertingControlNodes.clear();
 
       // Initialize variable tracking for this function
       if (!this.functionVariableCounts.has(functionContext)) {
@@ -375,11 +1323,17 @@ export class NWScriptControlNodeToASTConverter {
     if (functionContext && !this.functionStackInitialized.has(functionContext)) {
       this.setupFunctionContext(functionContext);
       this.functionStackInitialized.add(functionContext);
-      const entrySp = this.functionEntryStackPointers.get(functionContext);
-      if (entrySp !== undefined) {
-        this.stackSimulator.setProgramStackPointer(entrySp);
-        this.expressionBuilder.setStackPointer(entrySp);
-      }
+      const entrySp = this.stackSimulator.initializeFunctionFrame(
+        functionContext.returnType,
+        functionContext.parameters,
+        functionContext.returnStackSlots,
+        functionContext.returnStructureFieldTypes
+      );
+      this.functionEntryStackPointers.set(functionContext, entrySp);
+      this.functionEntrySnapshots.set(
+        functionContext,
+        this.stackSimulator.takeStackSnapshot()
+      );
     }
     
     // Convert the control node to statements
@@ -397,6 +1351,11 @@ export class NWScriptControlNodeToASTConverter {
     statements: NWScriptASTNode[]
   ): void {
     nwscriptDecompilerDebug(`[ControlNode] Converting ${controlNode.type} node`);
+    if (this.convertingControlNodes.has(controlNode)) {
+      return;
+    }
+    this.convertingControlNodes.add(controlNode);
+    try {
     switch (controlNode.type) {
       case 'basic_block':
         nwscriptDecompilerDebug(`[ControlNode] Processing basic_block node, block ID: ${controlNode.block.id}, instructions: ${controlNode.block.instructions.length}`);
@@ -404,179 +1363,64 @@ export class NWScriptControlNodeToASTConverter {
         break;
       
       case 'if':
-        // CRITICAL: Process header block first to handle RSADD and assignments
-        // The header block may contain variable declarations before the condition
-        // We need to process these BEFORE the if statement is created
         const ifNode = controlNode as IfNode;
         if (ifNode.condition.type === 'basic_block') {
-          const headerBlock = ifNode.condition.block;
-          const conditionInstr = headerBlock.conditionInstruction;
-          
-          if (conditionInstr) {
-            // Process instructions BEFORE the condition instruction
-            // These are variable declarations, assignments, etc.
-            const preConditionInstructions = headerBlock.instructions.filter(instr => 
-              instr.address < conditionInstr.address
-            );
-            
-            if (preConditionInstructions.length > 0) {
-              nwscriptDecompilerDebug(`[ControlNode] Processing ${preConditionInstructions.length} pre-condition instructions in if header block ${headerBlock.id}`);
-              
-              // Process these instructions using convertBasicBlock logic
-              // But we need to process them in the context of the current function
-              // Create a temporary basic block node for just the pre-condition instructions
-              // Actually, we should just process them directly using the same logic as convertBasicBlock
-              
-              // Initialize if needed
-              if (!this.functionVariableCounts.has(functionContext)) {
-                this.functionVariableCounts.set(functionContext, 0);
-              }
-              if (!this.functionVariableStackPositions.has(functionContext)) {
-                this.functionVariableStackPositions.set(functionContext, new Map());
-              }
-              
-              // Get the variable stack positions map for this function
-              const variableStackPositions = this.functionVariableStackPositions.get(functionContext)!;
-              
-              const preConditionStatements: NWScriptASTNode[] = [];
-              
-              // Process each pre-condition instruction
-              // Update stack simulator's variable position map for stack-aware resolution
-              this.stackSimulator.setVariableStackPositions(variableStackPositions);
-              this.stackSimulator.setLocalVariableInits(this.localInits);
-              
-              // Also update expression builder for consistency
-              this.expressionBuilder.setVariableStackPositions(variableStackPositions);
-              this.expressionBuilder.setLocalVariableInits(this.localInits);
-              this.expressionBuilder.setStackPointer(this.stackSimulator.getStackPointer());
-              
-              for (const instr of preConditionInstructions) {
-                // Track RSADD BEFORE processing
-                let isRsadd = false;
-                if (instr.code === OP_RSADD) {
-                  isRsadd = true;
-                  const stackPosBeforeRsadd = this.stackSimulator.getStackPointer();
-                  const currentCount = this.functionVariableCounts.get(functionContext) || 0;
-                  
-                  nwscriptDecompilerDebug(`[RSADD] Address: 0x${instr.address.toString(16).padStart(8, '0')}, SP before: ${stackPosBeforeRsadd}, Variable index: ${currentCount}`);
-                  
-                  variableStackPositions.set(stackPosBeforeRsadd, currentCount);
-                  this.functionVariableCounts.set(functionContext, currentCount + 1);
-                  
-                  // Update the stack simulator's map after recording the new variable
-                  this.stackSimulator.setVariableStackPositions(variableStackPositions);
-                  this.expressionBuilder.setVariableStackPositions(variableStackPositions);
-                  this.expressionBuilder.setStackPointer(this.stackSimulator.getStackPointer());
-                  
-                  // Process RSADD instruction
-                  this.stackSimulator.processInstruction(instr);
-                  continue; // Skip creating statements for RSADD
-                }
-                
-                // Check for CPDOWNSP assignments
-                // CRITICAL: Calculate target position BEFORE processing the instruction
-                // CPDOWNSP writes to stack[SP + offset] where SP is BEFORE the instruction
-                if (instr.code === OP_CPDOWNSP) {
-                  // Get SP BEFORE processing the instruction
-                  const spBefore = this.stackSimulator.getStackPointer();
-                  const offset = instr.offset || 0;
-                  const offsetSigned = offset > 0x7FFFFFFF ? offset - 0x100000000 : offset;
-                  const targetStackPos = spBefore + offsetSigned;
-                  
-                  // Now process the instruction
-                  const processedExpr = this.stackSimulator.processInstruction(instr);
-                  const valueExpr = processedExpr || this.stackSimulator.peek()?.expression;
-                  if (valueExpr) {
-                    nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: Address: 0x${instr.address.toString(16).padStart(8, '0')}, SP before: ${spBefore}, Offset: ${offsetSigned}, Target pos: ${targetStackPos}`);
-                    nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: Variable positions:`, Array.from(variableStackPositions.entries()).map(([pos, idx]) => `pos ${pos} -> var ${idx}`).join(', '));
-                    
-                    const varIndex = variableStackPositions.get(targetStackPos);
-                    nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: Looking up variable at position ${targetStackPos}: found index ${varIndex}`);
-                    
-                    const slotCap = this.getDeclaredLocalSlotCount(functionContext);
-                    if (varIndex !== undefined && varIndex >= 0 && varIndex < slotCap) {
-                      const varName = `localVar_${varIndex}`;
-                      nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: ✓ Creating assignment: ${varName} = <expression>`);
-                      preConditionStatements.push(NWScriptAST.createAssignment(varName, valueExpr, false));
-                      continue;
-                    }
-                    
-                    // Try nearby positions (stack-aware tolerance)
-                    for (let delta = -4; delta <= 4; delta += 4) {
-                      const nearbyPos = targetStackPos + delta;
-                      const nearbyVarIndex = variableStackPositions.get(nearbyPos);
-                      if (nearbyVarIndex !== undefined && nearbyVarIndex >= 0 && nearbyVarIndex < slotCap) {
-                        const varName = `localVar_${nearbyVarIndex}`;
-                        nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: ✓ Found nearby variable at position ${nearbyPos} (delta ${delta}): ${varName}`);
-                        preConditionStatements.push(NWScriptAST.createAssignment(varName, valueExpr, false));
-                        continue;
-                      }
-                    }
-                    
-                    // Stack-aware fallback: Check all variable positions with tolerance
-                    // The stack may have grown between RSADD and CPDOWNSP, so check all recorded positions
-                    for (const [varPos, varIndex] of variableStackPositions.entries()) {
-                      const distance = Math.abs(targetStackPos - varPos);
-                      // Allow tolerance (±8 bytes) since the stack may have grown
-                      if (distance <= 8 && varIndex >= 0 && varIndex < slotCap) {
-                        const varName = `localVar_${varIndex}`;
-                        nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: ✓ Found variable by position proximity: ${varName} (distance: ${distance})`);
-                        preConditionStatements.push(NWScriptAST.createAssignment(varName, valueExpr, false));
-                        continue;
-                      }
-                    }
-                    
-                    nwscriptDecompilerDebug(`[CPDOWNSP] Pre-condition: ✗ No variable found for assignment at position ${targetStackPos}`);
-                  }
-                  continue; // Skip adding as expression statement
-                }
-                
-                // Process other instructions
-                const expr = this.stackSimulator.processInstruction(instr);
-                
-                // Skip creating expression statements for intermediate values in pre-condition processing
-                // These are typically:
-                // - String constants (function parameters)
-                // - Function call results that will be assigned
-                // - Intermediate expressions that are part of larger expressions
-                // We only want to output statements that are meaningful (assignments, function calls with side effects, etc.)
-                // For now, skip all expression statements in pre-condition processing
-                // They will be handled as part of assignments or condition extraction
-                // The condition expression will be extracted separately
-              }
-              
-              // Add pre-condition statements to parent
-              statements.push(...preConditionStatements);
-              nwscriptDecompilerDebug(`[ControlNode] Added ${preConditionStatements.length} pre-condition statements before if`);
-            }
-          }
+          this.convertBasicBlock(ifNode.condition, functionContext, statements);
         }
-        
-        // Now create the if node (condition extraction will work correctly)
-        // But we need to prevent duplicate processing of the header block
+        if (this.tryConvertShortCircuitValueIf(ifNode, functionContext, statements)) {
+          break;
+        }
+        if (
+          ifNode.condition.type === 'basic_block' &&
+          this.tryConsumeShortCircuitDiamond(
+            ifNode.condition.block,
+            functionContext,
+            statements
+          )
+        ) {
+          // The recovered `if` wraps a compiler diamond. Fold the value, then convert
+          // remaining body nodes (the source `if (lhs || rhs)` and anything after it).
+          this.convertControlNode(ifNode.body, functionContext, statements);
+          break;
+        }
         statements.push(this.convertIfNode(controlNode, functionContext));
         break;
-      
+
       case 'if_else':
+        if (controlNode.condition.type === 'basic_block') {
+          this.convertBasicBlock(controlNode.condition, functionContext, statements);
+        }
+        if (
+          controlNode.condition.type === 'basic_block' &&
+          this.tryConsumeShortCircuitDiamond(
+            controlNode.condition.block,
+            functionContext,
+            statements
+          )
+        ) {
+          this.convertControlNode(controlNode.thenBody, functionContext, statements);
+          this.convertControlNode(controlNode.elseBody, functionContext, statements);
+          break;
+        }
         statements.push(this.convertIfElseNode(controlNode, functionContext));
         break;
-      
+
       case 'while':
         statements.push(this.convertWhileNode(controlNode, functionContext));
         break;
-      
+
       case 'do_while':
         statements.push(this.convertDoWhileNode(controlNode, functionContext));
         break;
-      
+
       case 'for':
         statements.push(this.convertForNode(controlNode, functionContext));
         break;
-      
+
       case 'switch':
-        statements.push(this.convertSwitchNode(controlNode, functionContext));
+        this.convertSwitchWithPrelude(controlNode, functionContext, statements);
         break;
-      
+
       case 'sequence':
         // Convert each node in sequence
         nwscriptDecompilerDebug(`[ControlNode] Processing sequence node with ${controlNode.nodes.length} nodes`);
@@ -585,7 +1429,474 @@ export class NWScriptControlNodeToASTConverter {
           this.convertControlNode(controlNode.nodes[i], functionContext, statements);
         }
         break;
+
+      case 'expression_region':
+        this.convertExpressionRegion(controlNode, functionContext, statements);
+        break;
     }
+    } finally {
+      this.convertingControlNodes.delete(controlNode);
+    }
+  }
+
+  /**
+   * Compiler-generated `lhs && rhs` uses a conditional block whose fallthrough body ends in
+   * LOGANDII. It computes a value; it is not a source-level `if`. Preserve that value on the
+   * simulated stack and consume a following OR diamond when present.
+   */
+  private tryConvertShortCircuitValueIf(
+    node: IfNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): boolean {
+    if (node.condition.type !== 'basic_block') {
+      return false;
+    }
+    const region = this.findShortCircuitAndValueRegion(node.condition.block);
+    if (!region) return false;
+
+    const excluded = new Set<NWScriptBasicBlock>();
+    for (const block of region.blocks) {
+      if (block.conditionInstruction?.code !== OP_JNZ || block.successors.size !== 2) continue;
+      const branches = Array.from(block.successors);
+      const orJoin = this.findShortCircuitJoin(branches[0], branches[1], OP_LOGORII);
+      if (!orJoin) continue;
+      const bypass = this.findShortCircuitBypass(branches[0], orJoin) ??
+        this.findShortCircuitBypass(branches[1], orJoin);
+      if (bypass) {
+        for (const bypassBlock of bypass) excluded.add(bypassBlock);
+      }
+    }
+
+    // Simulate the expression-producing fallthrough path. Conditional copies are consumed by
+    // their JZ/JNZ, nested joins apply LOGANDII/LOGORII, and no source statement is emitted for
+    // the compiler-only diamonds. Their common join remains for the enclosing source condition.
+    for (const block of region.blocks
+      .filter(block => !excluded.has(block))
+      .sort((left, right) => left.startInstruction.address - right.startInstruction.address)) {
+      this.convertBasicBlock({ type: 'basic_block', block }, functionContext, statements);
+    }
+    for (const block of excluded) {
+      this.blockStatements.set(block, []);
+      this.emittedBasicBlocksInCurrentProcedure.add(block);
+    }
+    return true;
+  }
+
+  /** Locate the forward CFG region that computes `lhs && rhs` before the JZ bypass join. */
+  private findShortCircuitAndValueRegion(
+    header: NWScriptBasicBlock
+  ): { join: NWScriptBasicBlock; blocks: NWScriptBasicBlock[] } | undefined {
+    const branch = header.conditionInstruction;
+    if (branch?.code !== OP_JZ || branch.offset === undefined || header.successors.size !== 2) {
+      return undefined;
+    }
+    const conditionIndex = header.instructions.indexOf(branch);
+    const duplicate = conditionIndex > 0 ? header.instructions[conditionIndex - 1] : undefined;
+    if (duplicate?.code !== OP_CPTOPSP && duplicate?.code !== OP_CPTOPBP) {
+      return undefined;
+    }
+
+    const join = this.cfg.getBlockForAddress(branch.address + toSignedInt32(branch.offset));
+    if (!join || !header.successors.has(join)) return undefined;
+    const fallthrough = Array.from(header.successors).find(successor => successor !== join);
+    if (!fallthrough) return undefined;
+
+    const blocks = new Set<NWScriptBasicBlock>();
+    const queued = new Set<NWScriptBasicBlock>([fallthrough]);
+    const queue = [fallthrough];
+    const joinAddress = join.startInstruction.address;
+    while (queue.length > 0) {
+      const block = queue.shift()!;
+      if (block === join || blocks.has(block)) continue;
+      if (block.startInstruction.address >= joinAddress) return undefined;
+      blocks.add(block);
+      for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
+        if (
+          successor !== join &&
+          !this.cfg.isBackEdge(block, successor) &&
+          !blocks.has(successor) &&
+          !queued.has(successor)
+        ) {
+          queued.add(successor);
+          queue.push(successor);
+        }
+      }
+    }
+    if (blocks.size === 0) return undefined;
+
+    const finalCombine = Array.from(blocks).some(block =>
+      block.instructions.some(instruction => instruction.code === OP_LOGANDII) &&
+      this.cfg.getIntraProceduralSuccessors(block, false).includes(join)
+    );
+    if (!finalCombine) return undefined;
+
+    return { join, blocks: Array.from(blocks) };
+  }
+
+  /** Return a source-order block list only for a genuinely linear ControlNode region. */
+  private getLinearBasicBlocks(node: ControlNode): NWScriptBasicBlock[] | null {
+    if (node.type === 'basic_block') return [node.block];
+    if (node.type === 'expression_region') return [...node.evaluateBlocks];
+    if (node.type !== 'sequence') return null;
+    const result: NWScriptBasicBlock[] = [];
+    for (const child of node.nodes) {
+      const blocks = this.getLinearBasicBlocks(child);
+      if (!blocks) return null;
+      result.push(...blocks);
+    }
+    return result;
+  }
+
+  /**
+   * Consume a compiler-only `&&` / `||` value region. Dummy bypass arms are never source
+   * `if`s. The logical join is left unconverted so the following condition can combine
+   * `[lhs, rhs]`.
+   */
+  private consumeShortCircuitRegion(
+    header: NWScriptBasicBlock,
+    evaluateBlocks: NWScriptBasicBlock[],
+    bypassBlocks: NWScriptBasicBlock[],
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): void {
+    for (const block of bypassBlocks) {
+      this.blockStatements.set(block, []);
+      this.emittedBasicBlocksInCurrentProcedure.add(block);
+    }
+    for (const block of evaluateBlocks) {
+      this.convertBasicBlock({ type: 'basic_block', block }, functionContext, statements);
+    }
+    this.consumedShortCircuitDiamondHeaders.add(header);
+  }
+
+  private convertExpressionRegion(
+    node: ExpressionRegionNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): void {
+    if (this.consumedShortCircuitDiamondHeaders.has(node.header)) {
+      return;
+    }
+    this.consumeShortCircuitRegion(
+      node.header,
+      node.evaluateBlocks,
+      node.bypassBlocks,
+      functionContext,
+      statements
+    );
+  }
+
+  /**
+   * Consume the two-arm value diamond emitted for `lhs || rhs` / `lhs && rhs`.
+   * The logical join is left unconverted so the following source `if`/`while`
+   * can combine `[lhs, rhs]` itself.
+   */
+  private tryConsumeShortCircuitDiamond(
+    header: NWScriptBasicBlock,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): boolean {
+    if (this.consumedShortCircuitDiamondHeaders.has(header)) {
+      return false;
+    }
+    const region = classifyShortCircuitRegion(this.cfg, header);
+    if (!region) {
+      return false;
+    }
+    this.consumeShortCircuitRegion(
+      region.header,
+      region.evaluateBlocks,
+      region.bypassBlocks,
+      functionContext,
+      statements
+    );
+    return true;
+  }
+
+  /**
+   * Recognize the compiler-only arm of a short-circuit OR diamond. The arm may be
+   * split into several basic blocks, but it can only copy the existing boolean value
+   * and jump to the logical join.
+   *
+   * BioWare nwnnsscomp emits a dummy `CPTOPSP; JZ join` rather than `CPTOPSP; JMP join`.
+   * The JZ is unreachable on that arm (`lhs` is already known to be nonzero), so it is
+   * only a pop of the extra copy; rhs still falls through to LOGORII.
+   */
+  private findShortCircuitBypass(
+    start: NWScriptBasicBlock,
+    join: NWScriptBasicBlock
+  ): Set<NWScriptBasicBlock> | undefined {
+    const blocks = new Set<NWScriptBasicBlock>();
+    let block: NWScriptBasicBlock | undefined = start;
+    let sawCopy = false;
+
+    while (block && block !== join) {
+      if (blocks.has(block)) return undefined;
+      blocks.add(block);
+
+      const condition = block.conditionInstruction;
+      const isDummyJoinBranch =
+        condition != null &&
+        (condition.code === OP_JZ || condition.code === OP_JNZ) &&
+        this.conditionalJumpTargets(block, condition).includes(join);
+
+      for (const instruction of block.instructions) {
+        if (instruction.code === OP_JMP) continue;
+        if (isDummyJoinBranch && instruction === condition) continue;
+        if (instruction.code !== OP_CPTOPSP && instruction.code !== OP_CPTOPBP) {
+          return undefined;
+        }
+        sawCopy = true;
+      }
+
+      const successors = this.cfg.getIntraProceduralSuccessors(block, false)
+        .filter(successor => !this.cfg.isBackEdge(block!, successor));
+      if (isDummyJoinBranch) {
+        return sawCopy ? blocks : undefined;
+      }
+      if (condition || successors.length !== 1) return undefined;
+      block = successors[0];
+    }
+
+    return block === join && sawCopy ? blocks : undefined;
+  }
+
+  private conditionalJumpTargets(
+    block: NWScriptBasicBlock,
+    condition: NWScriptInstruction
+  ): NWScriptBasicBlock[] {
+    const targets: NWScriptBasicBlock[] = [];
+    const taken = this.cfg.getBlockForAddress(
+      condition.address + toSignedInt32(condition.offset)
+    );
+    if (taken) targets.push(taken);
+    for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
+      if (!this.cfg.isBackEdge(block, successor) && !targets.includes(successor)) {
+        targets.push(successor);
+      }
+    }
+    return targets;
+  }
+
+  private findShortCircuitJoin(
+    left: NWScriptBasicBlock,
+    right: NWScriptBasicBlock,
+    logicalOpcode: number
+  ): NWScriptBasicBlock | undefined {
+    const startsWithLogical = (block: NWScriptBasicBlock): boolean => {
+      const first = block.instructions.find(instruction => instruction.code !== OP_NOP);
+      return first?.code === logicalOpcode;
+    };
+    const distances = (start: NWScriptBasicBlock): Map<NWScriptBasicBlock, number> => {
+      const result = new Map<NWScriptBasicBlock, number>([[start, 0]]);
+      const queue = [start];
+      while (queue.length > 0) {
+        const block = queue.shift()!;
+        if (block.isExit || block.exitType === 'return') {
+          continue;
+        }
+        const distance = result.get(block)!;
+        if (distance >= LOGICAL_JOIN_MAX_DISTANCE) {
+          continue;
+        }
+        for (const successor of this.cfg.getIntraProceduralSuccessors(block, false)) {
+          if (this.cfg.isBackEdge(block, successor) || result.has(successor)) continue;
+          result.set(successor, distance + 1);
+          queue.push(successor);
+        }
+      }
+      return result;
+    };
+    const fromLeft = distances(left);
+    const fromRight = distances(right);
+    return Array.from(fromLeft.keys())
+      .filter(block => fromRight.has(block) && startsWithLogical(block))
+      .sort((a, b) =>
+        (fromLeft.get(a)! + fromRight.get(a)!) -
+        (fromLeft.get(b)! + fromRight.get(b)!)
+      )[0];
+  }
+
+  private stackShapesMatch(
+    left: NWScriptStackSnapshot,
+    right: NWScriptStackSnapshot
+  ): boolean {
+    return left.stackPointer === right.stackPointer &&
+      left.basePointer === right.basePointer &&
+      left.stack.length === right.stack.length &&
+      left.stack.every((item, index) => item.slotWidth === right.stack[index].slotWidth);
+  }
+
+  /** Derive a block entry from the acyclic CFG path rooted at the procedure frame. */
+  private inferBlockEntrySnapshot(
+    block: NWScriptBasicBlock,
+    functionContext: NWScriptFunction,
+    visiting: Set<NWScriptBasicBlock>
+  ): NWScriptStackSnapshot | undefined {
+    const cached = this.inferredBlockEntrySnapshots.get(block);
+    if (cached) return cached;
+    if (this.inferredBlockEntryFailed.has(block)) return undefined;
+
+    if (block === functionContext.entryBlock) {
+      return this.functionEntrySnapshots.get(functionContext);
+    }
+
+    const functionBlocks = this.getFunctionBodyBlocks(functionContext);
+    const incoming = this.cfg.getIntraProceduralPredecessors(block)
+      .filter(predecessor =>
+        functionBlocks.has(predecessor) &&
+        !this.cfg.isBackEdge(predecessor, block)
+      )
+      .map(predecessor =>
+        this.inferBlockExitSnapshot(predecessor, functionContext, visiting)
+      )
+      .filter((snapshot): snapshot is NWScriptStackSnapshot => snapshot !== undefined);
+    if (incoming.length === 0) {
+      this.inferredBlockEntryFailed.add(block);
+      return undefined;
+    }
+
+    const reference = incoming[0];
+    if (!incoming.every(snapshot => this.stackShapesMatch(snapshot, reference))) {
+      this.inferredBlockEntryFailed.add(block);
+      return undefined;
+    }
+    const merged = this.stackSimulator.mergeStackSnapshots(
+      incoming,
+      `block ${block.id} inferred entry`,
+      reference
+    );
+    this.inferredBlockEntrySnapshots.set(block, merged);
+    return merged;
+  }
+
+  /** Simulate a block on inferred input without changing AST traversal state. */
+  private inferBlockExitSnapshot(
+    block: NWScriptBasicBlock,
+    functionContext: NWScriptFunction,
+    visiting: Set<NWScriptBasicBlock>
+  ): NWScriptStackSnapshot | undefined {
+    const cached = this.inferredBlockExitSnapshots.get(block);
+    if (cached) return cached;
+    if (visiting.has(block)) return undefined;
+    visiting.add(block);
+    try {
+      const entry = this.inferBlockEntrySnapshot(block, functionContext, visiting);
+      if (!entry) return undefined;
+      const exit = this.simulateBlockExit(functionContext, entry, block);
+      this.inferredBlockExitSnapshots.set(block, exit);
+      return exit;
+    } catch {
+      return undefined;
+    } finally {
+      visiting.delete(block);
+    }
+  }
+
+  /**
+   * Control-node recovery can leave sibling arms in a flat sequence. In that case the
+   * live simulator contains the previous sibling's cleanup state, not this block's
+   * incoming state. Restore the CFG-derived entry only when physical shapes disagree;
+   * equal-shaped explicit branch snapshots keep their more precise path expressions.
+   */
+  private restoreProvenBlockEntry(
+    block: NWScriptBasicBlock,
+    functionContext: NWScriptFunction | null
+  ): void {
+    let expected = functionContext
+      ? this.inferBlockEntrySnapshot(block, functionContext, new Set())
+      : undefined;
+
+    if (!expected) {
+      const incoming = this.cfg.getIntraProceduralPredecessors(block)
+        .map(predecessor => this.blockExitSnapshots.get(predecessor))
+        .filter((snapshot): snapshot is NWScriptStackSnapshot => snapshot !== undefined);
+      const reference = incoming[0];
+      if (
+        reference &&
+        incoming.every(snapshot => this.stackShapesMatch(snapshot, reference))
+      ) {
+        expected = this.stackSimulator.mergeStackSnapshots(
+          incoming,
+          `block ${block.id} entry`,
+          reference
+        );
+      }
+    }
+
+    if (!expected) return;
+    const current = this.stackSimulator.takeStackSnapshot();
+    if (!this.stackShapesMatch(current, expected)) {
+      this.stackSimulator.restoreStackSnapshot(expected);
+    }
+  }
+
+  /**
+   * Reconstruct the minimum physical frame required by a compiler-generated return epilogue.
+   *
+   * A structured traversal may visit a shared RETN block after an unrelated sibling arm. The
+   * live value stack can consequently be shallower than the bytecode frame even when every CFG
+   * path is valid. Pure MOVSP/RESTOREBP/NOP/RETN blocks contain no source expressions, so their
+   * missing values can be recovered from the procedure ABI without inventing source semantics.
+   * All other blocks retain strict underflow checking.
+   */
+  private restoreCompilerEpilogueFrame(
+    block: NWScriptBasicBlock,
+    functionContext: NWScriptFunction | null
+  ): void {
+    if (!functionContext || block.instructions.at(-1)?.code !== OP_RETN) return;
+    if (!block.instructions.every(instruction =>
+      instruction.code === OP_MOVSP ||
+      instruction.code === OP_RESTOREBP ||
+      instruction.code === OP_NOP ||
+      instruction.code === OP_RETN
+    )) return;
+
+    let cleanupSlots = 0;
+    for (const instruction of block.instructions) {
+      if (instruction.code !== OP_MOVSP) continue;
+      const offset = toSignedInt32(instruction.offset);
+      if (offset > 0) return;
+      cleanupSlots += stackSlotsForByteSize(Math.abs(offset), 'compiler epilogue MOVSP');
+    }
+
+    const returnSlots =
+      functionContext.returnStackSlots ??
+      stackSlotsForDataType(functionContext.returnType);
+    const requiredSlots = cleanupSlots + returnSlots;
+    if (this.stackSimulator.getStackSlotCount() >= requiredSlots) return;
+
+    const entry = this.functionEntrySnapshots.get(functionContext);
+    if (!entry) return;
+
+    const stack: NWScriptStackSnapshot['stack'] = [];
+    if (returnSlots > 0) {
+      stack.push({
+        expression: NWScriptExpression.unknown(
+          'compiler epilogue return-value reservation',
+          functionContext.returnType
+        ),
+        address: block.startInstruction.address,
+        slotWidth: returnSlots,
+      });
+    }
+    for (let slot = 0; slot < cleanupSlots; slot++) {
+      stack.push({
+        expression: NWScriptExpression.unknown('compiler epilogue frame slot'),
+        address: block.startInstruction.address,
+        slotWidth: 1,
+      });
+    }
+
+    this.stackSimulator.restoreStackSnapshot({
+      stack,
+      stackPointer: requiredSlots * 4,
+      basePointer: entry.basePointer,
+    });
+    nwscriptDecompilerDebug(
+      `[Block] Reconstructed ${requiredSlots}-slot ABI frame for return epilogue ${block.id}`
+    );
   }
 
   /**
@@ -594,7 +1905,8 @@ export class NWScriptControlNodeToASTConverter {
   private convertBasicBlock(
     blockNode: BasicBlockNode,
     functionContext: NWScriptFunction | null,
-    statements: NWScriptASTNode[]
+    statements: NWScriptASTNode[],
+    throughAddress?: number
   ): void {
     const block = blockNode.block;
 
@@ -631,12 +1943,21 @@ export class NWScriptControlNodeToASTConverter {
     if (functionContext && !this.functionStackInitialized.has(functionContext)) {
       this.setupFunctionContext(functionContext);
       this.functionStackInitialized.add(functionContext);
-      const entrySp = this.functionEntryStackPointers.get(functionContext);
-      if (entrySp !== undefined) {
-        this.stackSimulator.setProgramStackPointer(entrySp);
-        this.expressionBuilder.setStackPointer(entrySp);
-      }
+      const entrySp = this.stackSimulator.initializeFunctionFrame(
+        functionContext.returnType,
+        functionContext.parameters,
+        functionContext.returnStackSlots,
+        functionContext.returnStructureFieldTypes
+      );
+      this.functionEntryStackPointers.set(functionContext, entrySp);
+      this.functionEntrySnapshots.set(
+        functionContext,
+        this.stackSimulator.takeStackSnapshot()
+      );
     }
+
+    this.restoreProvenBlockEntry(block, functionContext);
+    this.restoreCompilerEpilogueFrame(block, functionContext);
     
     // Initialize variable tracking for this function if not already set
     if (!this.functionVariableCounts.has(functionContext)) {
@@ -652,12 +1973,18 @@ export class NWScriptControlNodeToASTConverter {
     // Update the stack simulator's variable position map for stack-aware CPTOPSP resolution
     // This must be done at the start of each block to ensure accurate variable resolution
     this.stackSimulator.setVariableStackPositions(variableStackPositions);
-    this.stackSimulator.setLocalVariableInits(this.localInits);
-    
-    // Also update expression builder for consistency (if it's used)
-    this.expressionBuilder.setVariableStackPositions(variableStackPositions);
-    this.expressionBuilder.setLocalVariableInits(this.localInits);
-    this.expressionBuilder.setStackPointer(this.stackSimulator.getStackPointer());
+    this.stackSimulator.setLocalVariableAllocationIndices(
+      this.getLocalAllocationIndicesForFunction(functionContext)
+    );
+    this.stackSimulator.setLocalVariableInits(
+      this.getLocalStackSlotsForFunction(functionContext)
+    );
+    this.stackSimulator.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(functionContext)
+    );
+    this.stackSimulator.setStructureLocalLayouts(
+      this.getStructureLocalLayouts(functionContext)
+    );
     
     nwscriptDecompilerDebug(`[Block] Processing block ${block.id} (${block.instructions.length} instructions), Function: ${functionContext?.name || 'main'}`);
     nwscriptDecompilerDebug(`[Block] Initial stack state - SP: ${this.stackSimulator.getStackPointer()}, Stack size: ${this.stackSimulator.getStackSize()}`);
@@ -672,31 +1999,42 @@ export class NWScriptControlNodeToASTConverter {
     
     for (let i = 0; i < block.instructions.length; i++) {
       const instruction = block.instructions[i];
+      if (throughAddress !== undefined && instruction.address > throughAddress) {
+        break;
+      }
+
+      if (
+        instruction.code === OP_STORE_STATE ||
+        instruction.code === OP_STORE_STATEALL
+      ) {
+        this.recoverStoreStateThunk(instruction, functionContext);
+      }
 
       // Track variable allocations (RSADD reserves space for a variable)
       // IMPORTANT: Do this BEFORE processing the instruction, so we capture the stack position
       // where the variable will live (before RSADD pushes the default value)
       let isRsadd = false;
-      if (instruction.code === OP_RSADD) {
+      if (
+        instruction.code === OP_RSADD &&
+        !this.jsrReturnReservationAddresses.has(instruction.address)
+      ) {
         isRsadd = true;
         // RSADD pushes a default value onto the stack (0, 0.0, '', etc.)
         // The variable lives at the current stack position (before RSADD executes)
         // After RSADD, SP moves up by 4, and the variable is at the old SP position
         const stackPosBeforeRsadd = this.stackSimulator.getStackPointer();
-        const currentCount = this.functionVariableCounts.get(functionContext) || 0;
+        const variableIndex = this.registerLocalAllocation(
+          functionContext,
+          instruction.address,
+          stackPosBeforeRsadd
+        );
         
-        nwscriptDecompilerDebug(`[RSADD] Address: 0x${instruction.address.toString(16).padStart(8, '0')}, SP before: ${stackPosBeforeRsadd}, Variable index: ${currentCount}, Function: ${functionContext?.name || 'main'}`);
+        nwscriptDecompilerDebug(`[RSADD] Address: 0x${instruction.address.toString(16).padStart(8, '0')}, SP before: ${stackPosBeforeRsadd}, Variable index: ${variableIndex}, Function: ${functionContext?.name || 'main'}`);
         
-        // Record where this variable lives on the stack
-        // Variable index = currentCount (0-based)
-        variableStackPositions.set(stackPosBeforeRsadd, currentCount);
-        this.functionVariableCounts.set(functionContext, currentCount + 1);
-        
-        // Update both simulators' variable position maps
+        // Update the canonical simulator's variable position map.
         this.stackSimulator.setVariableStackPositions(variableStackPositions);
-        this.expressionBuilder.setVariableStackPositions(variableStackPositions);
         
-        nwscriptDecompilerDebug(`[RSADD] Recorded variable ${currentCount} at stack position ${stackPosBeforeRsadd}`);
+        nwscriptDecompilerDebug(`[RSADD] Recorded variable ${variableIndex} at stack position ${stackPosBeforeRsadd}`);
         nwscriptDecompilerDebug(`[RSADD] Variable stack positions map:`, Array.from(variableStackPositions.entries()).map(([pos, idx]) => `pos ${pos} -> var ${idx}`).join(', '));
       }
       
@@ -709,15 +2047,48 @@ export class NWScriptControlNodeToASTConverter {
         const offset = instruction.offset || 0;
         const offsetSigned = offset > 0x7FFFFFFF ? offset - 0x100000000 : offset;
         cpdownspTargetPos = cpdownspSpBefore + offsetSigned;
+        if (instruction.size === 12) {
+          this.registerVectorLocalAtStackPosition(
+            functionContext,
+            cpdownspTargetPos,
+            variableStackPositions,
+            true
+          );
+        }
         nwscriptDecompilerDebug(`[CPDOWNSP-PRE] Address: 0x${instruction.address.toString(16).padStart(8, '0')}, SP before: ${cpdownspSpBefore}, Offset: ${offsetSigned}, Target pos: ${cpdownspTargetPos}`);
+      }
+
+      if (instruction.code === OP_CPTOPSP && instruction.size === 12) {
+        this.registerVectorLocalAtStackPosition(
+          functionContext,
+          this.stackSimulator.getStackPointer() + toSignedInt32(instruction.offset),
+          variableStackPositions,
+          false
+        );
       }
       
       // Process instruction through stack simulator
       // This ensures the stack state is correct when we check for return values
       const expr = this.stackSimulator.processInstruction(instruction);
-      
-      // Keep expression builder's stack pointer in sync after each instruction
-      this.expressionBuilder.setStackPointer(this.stackSimulator.getStackPointer());
+
+      if (
+        (instruction.code === OP_JZ || instruction.code === OP_JNZ) &&
+        expr
+      ) {
+        this.conditionExpressions.set(block, expr);
+      }
+
+      if (
+        instruction.code === OP_MOVSP &&
+        instruction.prevInstr?.code !== OP_CPDOWNSP &&
+        instruction.prevInstr?.code !== OP_CPDOWNBP
+      ) {
+        for (const discarded of this.stackSimulator.getDiscardedExpressions()) {
+          if (discarded.type === NWScriptExpressionType.FUNCTION_CALL) {
+            blockStatements.push(NWScriptAST.createExpressionStatement(discarded));
+          }
+        }
+      }
       
       // Skip creating statements for RSADD (it's just variable allocation)
       if (isRsadd) {
@@ -725,9 +2096,12 @@ export class NWScriptControlNodeToASTConverter {
       }
 
       if (instruction.code === OP_JMP && instruction.offset !== undefined) {
-        const targetAddr = instruction.address + instruction.offset;
+        const targetAddr = instruction.address + toSignedInt32(instruction.offset);
         const targetBlock = this.cfg.getBlockForAddress(targetAddr);
         const jumpKind = this.classifyStructuredJumpTarget(targetBlock);
+        if (jumpKind === "continue" && blockNode.suppressTerminalLoopJump) {
+          continue;
+        }
         if (jumpKind === "break") {
           blockStatements.push(NWScriptAST.createBreak());
           continue;
@@ -750,25 +2124,20 @@ export class NWScriptControlNodeToASTConverter {
         nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] Function: ${functionContext?.name || 'main'}, Return value offset: ${returnValueOffset}, Entry SP: ${entrySP}`);
         
         if (returnValueOffset !== undefined && entrySP !== undefined) {
-          // The return value position is an absolute position (where RSADD reserved space)
-          // We stored it as an offset from entry SP, so we need to reconstruct the absolute position
-          // But actually, we should compare absolute positions directly
-          // The return value absolute position = entrySP + returnValueOffset
-          const returnValueAbsolutePos = entrySP + returnValueOffset;
-          
-          // The CPDOWNSP target position is also absolute (cpdownspSpBefore + offset)
-          // So we should compare absolute positions directly
-          nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] Return value absolute position: ${entrySP} + ${returnValueOffset} = ${returnValueAbsolutePos}`);
-          nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] CPDOWNSP absolute target position: ${cpdownspTargetPos}`);
-          nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] Comparing absolute positions: ${cpdownspTargetPos} === ${returnValueAbsolutePos}? ${cpdownspTargetPos === returnValueAbsolutePos}`);
+          const returnValueFramePos = entrySP + returnValueOffset;
+
+          nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] Return value frame position: ${entrySP} + ${returnValueOffset} = ${returnValueFramePos}`);
+          nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] CPDOWNSP frame target position: ${cpdownspTargetPos}`);
           nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] Current SP: ${cpdownspSpBefore}, CPDOWNSP offset: ${instruction.offset ? (instruction.offset > 0x7FFFFFFF ? instruction.offset - 0x100000000 : instruction.offset) : 'undefined'}`);
           
-          // Check if this CPDOWNSP writes to the absolute return value position
-          if (cpdownspTargetPos === returnValueAbsolutePos) {
-            nwscriptDecompilerDebug(`[RETURN-DETECT] ✓ MATCH! Address: 0x${instruction.address.toString(16).padStart(8, '0')}, Current SP: ${cpdownspSpBefore}, Target pos: ${cpdownspTargetPos}, Entry SP: ${entrySP}, Return offset: ${returnValueOffset}, Return value absolute pos: ${returnValueAbsolutePos}`);
+          if (cpdownspTargetPos === returnValueFramePos) {
+            nwscriptDecompilerDebug(`[RETURN-DETECT] ✓ MATCH! Address: 0x${instruction.address.toString(16).padStart(8, '0')}, Current SP: ${cpdownspSpBefore}, Target pos: ${cpdownspTargetPos}, Entry SP: ${entrySP}, Return offset: ${returnValueOffset}`);
             
             // Get the return value expression from the stack
-            returnValueExpr = this.stackSimulator.peek()?.expression;
+            returnValueExpr = this.expressionForExpectedType(
+              expr ?? this.stackSimulator.peek()?.expression,
+              functionContext.returnType
+            );
             nwscriptDecompilerDebug(`[RETURN-DETECT] Stack top expression: ${returnValueExpr ? returnValueExpr.toNSS() : 'undefined'}`);
             
             const allowReturnValueStatement =
@@ -778,14 +2147,14 @@ export class NWScriptControlNodeToASTConverter {
             // Create the return statement immediately (not wait for RETN)
             if (returnValueExpr && allowReturnValueStatement) {
               isReturnWrite = true;
+              this.returnValueExpressions.set(block, returnValueExpr);
               blockStatements.push(NWScriptAST.createReturn(returnValueExpr));
               nwscriptDecompilerDebug(`[RETURN-DETECT] ✓ Created return statement with expression: ${returnValueExpr.toNSS()}`);
             } else {
               nwscriptDecompilerDebug(`[RETURN-DETECT] ✗ WARNING: No expression on stack for return value`);
             }
           } else {
-            nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] ✗ No match: CPDOWNSP absolute target ${cpdownspTargetPos} !== Return value absolute pos ${returnValueAbsolutePos} (difference: ${cpdownspTargetPos - returnValueAbsolutePos})`);
-            nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] This suggests the return value position calculation may be incorrect, or this CPDOWNSP is writing to a different location`);
+            nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] ✗ No match: CPDOWNSP frame target ${cpdownspTargetPos} !== return position ${returnValueFramePos}`);
           }
         } else {
           nwscriptDecompilerDebug(`[RETURN-DETECT-CHECK] ✗ Missing data: returnValueOffset=${returnValueOffset}, entrySP=${entrySP}`);
@@ -803,13 +2172,17 @@ export class NWScriptControlNodeToASTConverter {
         const hasReturnSuccessor = block.exitType === 'return' ||
           Array.from(block.successors).some(succ => succ.exitType === 'return' || (succ.endInstruction && succ.endInstruction.code === OP_RETN));
         if (hasReturnSuccessor) {
-          returnValueExpr = this.stackSimulator.peek()?.expression;
+          returnValueExpr = this.expressionForExpectedType(
+            expr ?? this.stackSimulator.peek()?.expression,
+            functionContext?.returnType ?? NWScriptDataType.INTEGER
+          );
           const allowReturnValueStatement =
             functionContext !== null &&
             functionContext.returnType !== NWScriptDataType.VOID;
           nwscriptDecompilerDebug(`[RETURN-DETECT-FLOW] Address: 0x${instruction.address.toString(16).padStart(8, '0')}, target pos: ${cpdownspTargetPos} not mapped to local, block leads to return -> treating as return write`);
           if (returnValueExpr && allowReturnValueStatement) {
             isReturnWrite = true;
+            this.returnValueExpressions.set(block, returnValueExpr);
             blockStatements.push(NWScriptAST.createReturn(returnValueExpr));
             nwscriptDecompilerDebug(`[RETURN-DETECT-FLOW] ✓ Created return statement with expression: ${returnValueExpr.toNSS()}`);
           } else {
@@ -857,57 +2230,57 @@ export class NWScriptControlNodeToASTConverter {
           // No value to assign - skip
           continue;
         }
+
+        if (this.isMaterializedDeclarationInitializer(functionContext, instruction.address)) {
+          continue;
+        }
         
         nwscriptDecompilerDebug(`[CPDOWNSP] Expression type: ${valueExpr.type}, Value: ${JSON.stringify(valueExpr).substring(0, 100)}`);
         nwscriptDecompilerDebug(`[CPDOWNSP] Variable stack positions map:`, Array.from(variableStackPositions.entries()).map(([pos, idx]) => `pos ${pos} -> var ${idx}`).join(', '));
         
         // Look up which variable lives at this stack position
-        const varIndex = variableStackPositions.get(targetStackPos);
+        const varIndex = this.stackSimulator.getLocalVariableIndexAtStackPosition(targetStackPos);
         
         nwscriptDecompilerDebug(`[CPDOWNSP] Looking up variable at position ${targetStackPos}: found index ${varIndex}`);
         
         const slotCap = this.getDeclaredLocalSlotCount(functionContext);
+        if (
+          instruction.size !== undefined &&
+          instruction.size > 4 &&
+          valueExpr.type === NWScriptExpressionType.AGGREGATE
+        ) {
+          const targetIndices = valueExpr.components.map((_, component) =>
+            this.stackSimulator.getLocalVariableIndexAtStackPosition(
+              targetStackPos + component * 4
+            )
+          );
+          if (targetIndices.every((index): index is number =>
+            index !== undefined && index >= 0 && index < slotCap
+          )) {
+            for (let component = 0; component < targetIndices.length; component += 1) {
+              blockStatements.push(NWScriptAST.createAssignment(
+                this.getLocalSlotSourceName(functionContext, targetIndices[component]),
+                valueExpr.components[component],
+                false
+              ));
+            }
+            continue;
+          }
+        }
         if (varIndex !== undefined && varIndex >= 0 && varIndex < slotCap) {
           // This is an assignment to a local variable
-          const varName = `localVar_${varIndex}`;
+          const varName = this.getLocalSlotSourceName(
+            functionContext,
+            varIndex,
+            (instruction.size ?? 4) > 4
+          );
           nwscriptDecompilerDebug(`[CPDOWNSP] ✓ Creating assignment: ${varName} = <expression>`);
           blockStatements.push(NWScriptAST.createAssignment(varName, valueExpr, false));
           continue;
         }
         
-        nwscriptDecompilerDebug(`[CPDOWNSP] No exact match at position ${targetStackPos}, trying nearby positions...`);
-        
-        // Fallback: If we didn't find it by exact stack position, try nearby positions
-        // Sometimes stack positions might be off by a few bytes due to intermediate operations
-        // Check positions within ±4 bytes
-        for (let delta = -4; delta <= 4; delta += 4) {
-          const nearbyPos = targetStackPos + delta;
-          const nearbyVarIndex = variableStackPositions.get(nearbyPos);
-          if (nearbyVarIndex !== undefined && nearbyVarIndex >= 0 && nearbyVarIndex < slotCap) {
-            const varName = `localVar_${nearbyVarIndex}`;
-            nwscriptDecompilerDebug(`[CPDOWNSP] ✓ Found nearby variable at position ${nearbyPos} (delta ${delta}): ${varName}`);
-            blockStatements.push(NWScriptAST.createAssignment(varName, valueExpr, false));
-            continue;
-          }
-        }
-        
-        // Stack-aware fallback: Check all variable positions with tolerance
-        // Sometimes the stack has grown between RSADD and CPDOWNSP, so the exact position doesn't match
-        // Try to find the variable by checking all recorded positions
-        nwscriptDecompilerDebug(`[CPDOWNSP] Trying stack-aware fallback: checking all variable positions...`);
-        for (const [varPos, varIndex] of variableStackPositions.entries()) {
-          // Check if the target position is close to any variable position
-          // Allow some tolerance (±8 bytes) since the stack may have grown
-          const distance = Math.abs(targetStackPos - varPos);
-          if (distance <= 8 && varIndex >= 0 && varIndex < slotCap) {
-            const varName = `localVar_${varIndex}`;
-            nwscriptDecompilerDebug(`[CPDOWNSP] ✓ Found variable by position proximity: ${varName} (distance: ${distance})`);
-            blockStatements.push(NWScriptAST.createAssignment(varName, valueExpr, false));
-            continue;
-          }
-        }
-        
         nwscriptDecompilerDebug(`[CPDOWNSP] ✗ No variable found for assignment at position ${targetStackPos}`);
+        continue;
       }
       
       // CPTOPSP is already handled by stackSimulator.processInstruction above; do not process twice
@@ -923,6 +2296,30 @@ export class NWScriptControlNodeToASTConverter {
       // - Simple integer constants (0, 1) that are intermediate values
       // - Binary operations that are intermediate (part of larger expressions)
       if (expr) {
+        if (
+          instruction.code === OP_CPDOWNBP &&
+          expr.type === NWScriptExpressionType.AGGREGATE &&
+          expr.components.every(component => component.type === NWScriptExpressionType.ASSIGNMENT)
+        ) {
+          for (const assignment of expr.components) {
+            blockStatements.push(NWScriptAST.createExpressionStatement(assignment));
+          }
+          continue;
+        }
+        // Direct frame mutations (CPDOWNBP, INC/DEC) are complete source statements.
+        if (expr.type === NWScriptExpressionType.ASSIGNMENT) {
+          blockStatements.push(NWScriptAST.createExpressionStatement(expr));
+          continue;
+        }
+        if (
+          expr.type === NWScriptExpressionType.UNARY_OP &&
+          (expr.operator === '++' || expr.operator === '--' ||
+            expr.operator === 'post++' || expr.operator === 'post--')
+        ) {
+          blockStatements.push(NWScriptAST.createExpressionStatement(expr));
+          continue;
+        }
+
         // Skip string constants (they're typically function parameters)
         if (expr.type === 'constant' && expr.dataType === NWScriptDataType.STRING) {
           continue;
@@ -971,50 +2368,10 @@ export class NWScriptControlNodeToASTConverter {
         // - ACTION -> (any op that consumes stack) -> CPDOWNSP (assignment)
         // - ACTION -> (any op) -> (comparison/binary op)
         if (expr.type === 'function_call') {
-          // Void intrinsics/engine calls are always side effects; don't suppress them waiting for a nonexistent result.
+          // Void calls complete immediately. Non-void calls stay in the value stack and are
+          // emitted only if a later MOVSP explicitly discards their unused result.
           if (expr.dataType === NWScriptDataType.VOID) {
             blockStatements.push(NWScriptAST.createExpressionStatement(expr));
-          } else {
-          // Look ahead to see if this function call is part of a larger expression
-          // Check up to 5 instructions ahead for patterns that consume the function result
-          let isPartOfExpression = false;
-          const lookAheadLimit = Math.min(i + 6, block.instructions.length);
-          
-          for (let j = i + 1; j < lookAheadLimit; j++) {
-            const futureInstr = block.instructions[j];
-            
-            // If we find a comparison, binary op, or assignment, the function call is part of an expression
-            if (futureInstr.code === OP_EQUAL || futureInstr.code === OP_NEQUAL || 
-                futureInstr.code === OP_GT || futureInstr.code === OP_GEQ || 
-                futureInstr.code === OP_LT || futureInstr.code === OP_LEQ ||
-                futureInstr.code === OP_ADD || futureInstr.code === OP_SUB ||
-                futureInstr.code === OP_MUL || futureInstr.code === OP_DIV ||
-                futureInstr.code === OP_LOGANDII || futureInstr.code === OP_LOGORII ||
-                futureInstr.code === OP_CPDOWNSP) {
-              if (
-                futureInstr.code === OP_CPDOWNSP &&
-                expr.dataType === NWScriptDataType.VOID
-              ) {
-                // Void ACTION (e.g. DelayCommand) leaves no result; CPDOWNSP ahead is unrelated cleanup.
-              } else {
-                isPartOfExpression = true;
-                break;
-              }
-            }
-            
-            // If we hit a terminator (JMP, JZ, JNZ, RETN, JSR), stop looking ahead
-            // The function call is not part of an expression in this block
-            if (futureInstr.code === OP_JMP || futureInstr.code === OP_RETN ||
-                futureInstr.code === OP_JSR || futureInstr.code === OP_JZ ||
-                futureInstr.code === OP_JNZ) {
-              break;
-            }
-          }
-          
-          // Only create expression statement if it's not part of a larger expression
-          if (!isPartOfExpression) {
-            blockStatements.push(NWScriptAST.createExpressionStatement(expr));
-          }
           }
         }
         // For other expression types, be conservative and skip them
@@ -1023,6 +2380,11 @@ export class NWScriptControlNodeToASTConverter {
     }
     
     // Cache the statements
+    const exitSnapshot = this.stackSimulator.takeStackSnapshot();
+    this.blockExitSnapshots.set(block, exitSnapshot);
+    if (block.conditionInstruction) {
+      this.conditionExitSnapshots.set(block, exitSnapshot);
+    }
     this.blockStatements.set(block, blockStatements);
     this.emittedBasicBlocksInCurrentProcedure.add(block);
     statements.push(...blockStatements);
@@ -1041,6 +2403,9 @@ export class NWScriptControlNodeToASTConverter {
     // Extract condition from condition block
     // The stack state should already be correct from pre-condition processing
     let condition = this.extractConditionFromBlock(node.condition, functionContext, node);
+    if (node.invertCondition) {
+      condition = NWScriptExpression.unaryOp('!', condition, NWScriptDataType.INTEGER);
+    }
     
     nwscriptDecompilerDebug(`[convertIfNode] Initial condition extracted, type: ${condition.type}`);
     if (condition.type === 'variable') {
@@ -1111,8 +2476,15 @@ export class NWScriptControlNodeToASTConverter {
       }
     }
 
-    // Convert body
-    const thenBody = this.convertControlNodeToBlock(actualBodyNode, functionContext);
+    this.consumeStructuredCondition(node.condition, condition);
+    const branchEntry = this.stackSimulator.takeStackSnapshot();
+    const thenBranch = this.convertBranchFromSnapshot(actualBodyNode, functionContext, branchEntry);
+    const thenBody = thenBranch.body;
+    this.restoreControlFlowJoin(
+      [branchEntry, thenBranch.exit],
+      `if block ${node.condition.type === 'basic_block' ? node.condition.block.id : 'unknown'} join`,
+      branchEntry
+    );
     
     // If the body is empty and we extracted a cross-block condition, the body block was part of the condition
     // In this case, the actual body should be the nested structure (e.g., inner if-else) that follows
@@ -1137,11 +2509,18 @@ export class NWScriptControlNodeToASTConverter {
   private convertIfElseNode(node: IfElseNode, functionContext: NWScriptFunction | null): NWScriptIfElseNode {
     // Extract condition from condition block
     let condition = this.extractConditionFromBlock(node.condition, functionContext);
+    if (node.invertCondition) {
+      condition = NWScriptExpression.unaryOp('!', condition, NWScriptDataType.INTEGER);
+    }
     
     // Check if we need to look at predecessor blocks for cross-block AND chains
     // This handles cases where the LOGANDII is in a previous block
-    if (node.condition.type === 'basic_block') {
+    if (
+      node.condition.type === 'basic_block' &&
+      !this.conditionExpressions.has(node.condition.block)
+    ) {
       const headerBlock = node.condition.block;
+      let foundCombinedCondition = false;
       // Find the path from a conditional predecessor through a LOGANDII block to this block
       // This handles the pattern: block1 (condition) -> block2 (LOGANDII) -> block3 (final condition)
       for (const predecessor of headerBlock.predecessors) {
@@ -1158,20 +2537,29 @@ export class NWScriptControlNodeToASTConverter {
               );
               if (combinedCondition) {
                 condition = combinedCondition;
+                foundCombinedCondition = true;
                 break;
               }
             }
           }
-          if (condition !== this.extractConditionFromBlock(node.condition, functionContext)) {
+          if (foundCombinedCondition) {
             break; // Found and set combined condition
           }
         }
       }
     }
     
-    // Convert bodies
-    const thenBody = this.convertControlNodeToBlock(node.thenBody, functionContext);
-    const elseBody = this.convertControlNodeToBlock(node.elseBody, functionContext);
+    this.consumeStructuredCondition(node.condition, condition);
+    const branchEntry = this.stackSimulator.takeStackSnapshot();
+    const thenBranch = this.convertBranchFromSnapshot(node.thenBody, functionContext, branchEntry);
+    const elseBranch = this.convertBranchFromSnapshot(node.elseBody, functionContext, branchEntry);
+    const thenBody = thenBranch.body;
+    const elseBody = elseBranch.body;
+    this.restoreControlFlowJoin(
+      [thenBranch.exit, elseBranch.exit],
+      `if/else block ${node.condition.type === 'basic_block' ? node.condition.block.id : 'unknown'} join`,
+      branchEntry
+    );
     
     // Get header block for metadata (if condition is a basic block)
     const headerBlock = node.condition.type === 'basic_block' ? node.condition.block : undefined;
@@ -1183,20 +2571,29 @@ export class NWScriptControlNodeToASTConverter {
    * Convert WhileNode to AST
    */
   private convertWhileNode(node: WhileNode, functionContext: NWScriptFunction | null): NWScriptWhileNode {
-    // Extract condition from condition block
-    const condition = this.extractConditionFromBlock(node.condition, functionContext);
+    const condition = this.convertAndExtractLoopCondition(
+      node.condition,
+      functionContext,
+      []
+    );
+    const loopEntry = this.stackSimulator.takeStackSnapshot();
 
     let body: NWScriptBlockNode;
+    let bodyExit: NWScriptStackSnapshot;
 
     // Get header block for metadata (if condition is a basic block)
     const headerBlock = node.condition.type === "basic_block" ? node.condition.block : undefined;
 
     this.pushLoopJumpHints(node);
     try {
-      body = this.convertControlNodeToBlock(node.body, functionContext);
+      const branch = this.convertBranchFromSnapshot(node.body, functionContext, loopEntry);
+      body = branch.body;
+      bodyExit = branch.exit;
     } finally {
       this.popJumpHint();
     }
+
+    this.restoreControlFlowJoin([loopEntry, bodyExit!], 'while loop join', loopEntry);
 
     return NWScriptAST.createWhile(condition, body, headerBlock);
   }
@@ -1205,9 +2602,7 @@ export class NWScriptControlNodeToASTConverter {
    * Convert DoWhileNode to AST
    */
   private convertDoWhileNode(node: DoWhileNode, functionContext: NWScriptFunction | null): NWScriptDoWhileNode {
-    // Extract condition from condition block
-    const condition = this.extractConditionFromBlock(node.condition, functionContext);
-
+    const loopEntry = this.stackSimulator.takeStackSnapshot();
     let body: NWScriptBlockNode;
 
     // Get header block for metadata (if condition is a basic block)
@@ -1215,10 +2610,26 @@ export class NWScriptControlNodeToASTConverter {
 
     this.pushLoopJumpHints(node);
     try {
-      body = this.convertControlNodeToBlock(node.body, functionContext);
+      body = this.convertBranchFromSnapshot(node.body, functionContext, loopEntry).body;
     } finally {
       this.popJumpHint();
     }
+
+    // A do/while condition executes after the first body iteration.
+    const conditionPrefixStatements: NWScriptASTNode[] = [];
+    const condition = this.convertAndExtractLoopCondition(
+      node.condition,
+      functionContext,
+      conditionPrefixStatements
+    );
+    if (conditionPrefixStatements.length > 0) {
+      body.statements.push(...conditionPrefixStatements);
+      // createBlock aliases children and statements; replace children after mutation so
+      // the post-test prefix is represented exactly once.
+      body.children = [...body.statements];
+    }
+    const loopExit = this.stackSimulator.takeStackSnapshot();
+    this.restoreControlFlowJoin([loopEntry, loopExit], 'do/while loop join', loopExit);
 
     // Note: createDoWhile signature is: (body, condition, headerBlock?)
     return NWScriptAST.createDoWhile(body, condition, headerBlock);
@@ -1228,9 +2639,14 @@ export class NWScriptControlNodeToASTConverter {
    * Convert ForNode to AST
    */
   private convertForNode(node: ForNode, functionContext: NWScriptFunction | null): NWScriptForNode {
-    const condition = this.extractConditionFromBlock(node.condition, functionContext);
-
     const init = node.init ? this.convertControlNodeToBlock(node.init, functionContext) : undefined;
+
+    const condition = this.convertAndExtractLoopCondition(
+      node.condition,
+      functionContext,
+      []
+    );
+    const loopEntry = this.stackSimulator.takeStackSnapshot();
 
     const headerBlock =
       node.condition.type === "basic_block" ? node.condition.block : undefined;
@@ -1240,7 +2656,7 @@ export class NWScriptControlNodeToASTConverter {
 
     this.pushLoopJumpHints(node);
     try {
-      body = this.convertControlNodeToBlock(node.body, functionContext);
+      body = this.convertBranchFromSnapshot(node.body, functionContext, loopEntry).body;
       increment = node.increment
         ? this.convertControlNodeToBlock(node.increment, functionContext)
         : undefined;
@@ -1248,27 +2664,111 @@ export class NWScriptControlNodeToASTConverter {
       this.popJumpHint();
     }
 
+    const iterationExit = this.stackSimulator.takeStackSnapshot();
+    this.restoreControlFlowJoin([loopEntry, iterationExit], 'for loop join', loopEntry);
+
     return NWScriptAST.createFor(body, init, condition, increment, headerBlock);
+  }
+
+  /** Execute every block in a split short-circuit condition and read the final branch value. */
+  private convertAndExtractLoopCondition(
+    conditionNode: ControlNode,
+    functionContext: NWScriptFunction | null,
+    prefixStatements: NWScriptASTNode[]
+  ): NWScriptExpression {
+    const blocks = this.getLinearBasicBlocks(conditionNode);
+    if (!blocks || blocks.length === 0) {
+      return NWScriptExpression.unknown('loop condition is not a linear bytecode region');
+    }
+    for (const block of blocks) {
+      this.convertBasicBlock({ type: 'basic_block', block }, functionContext, prefixStatements);
+    }
+    const terminal = [...blocks].reverse().find(block => block.conditionInstruction);
+    if (!terminal) {
+      return NWScriptExpression.unknown('loop condition has no conditional branch');
+    }
+    return this.extractConditionFromBlock(
+      { type: 'basic_block', block: terminal },
+      functionContext
+    );
+  }
+
+  /**
+   * Emit switch-header side effects (e.g. `nRandom = Random(...)`) once, then the switch.
+   */
+  private convertSwitchWithPrelude(
+    node: SwitchNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): void {
+    const expression = this.emitSwitchPrelude(node, functionContext, statements);
+    statements.push(this.convertSwitchNode(node, functionContext, expression));
+  }
+
+  private emitSwitchPrelude(
+    node: SwitchNode,
+    functionContext: NWScriptFunction | null,
+    statements: NWScriptASTNode[]
+  ): NWScriptExpression {
+    const headerBlock =
+      node.expression.type === "basic_block" ? node.expression.block : undefined;
+    const producer = node.discriminantInstruction;
+    const producerBlock = producer
+      ? this.cfg.getBlockForAddress(producer.address) ?? undefined
+      : headerBlock;
+
+    if (producerBlock) {
+      this.convertBasicBlock(
+        { type: 'basic_block', block: producerBlock },
+        functionContext,
+        statements,
+        producer?.address
+      );
+    }
+
+    for (const dispatch of node.switchDispatchBlocks ?? []) {
+      if (dispatch === producerBlock || dispatch === headerBlock) {
+        continue;
+      }
+      this.blockStatements.set(dispatch, []);
+      this.emittedBasicBlocksInCurrentProcedure.add(dispatch);
+    }
+
+    const peeked = this.stackSimulator.peek()?.expression;
+    if (peeked) {
+      return peeked;
+    }
+    if (producer) {
+      return this.extractExpressionUpToInstruction(producer, functionContext);
+    }
+    return this.extractExpressionFromBlock(node.expression, functionContext);
   }
 
   /**
    * Convert SwitchNode to AST
    */
-  private convertSwitchNode(node: SwitchNode, functionContext: NWScriptFunction | null): NWScriptSwitchNode {
-    // Prefer merged-ladder CPTOP addr (discriminant may be in a successor block vs header-only)
-    const expression =
-      node.discriminantInstruction != null
-        ? this.extractExpressionUpToInstruction(node.discriminantInstruction, functionContext)
-        : this.extractExpressionFromBlock(node.expression, functionContext);
-
+  private convertSwitchNode(
+    node: SwitchNode,
+    functionContext: NWScriptFunction | null,
+    expression: NWScriptExpression
+  ): NWScriptSwitchNode {
     const headerBlock =
       node.expression.type === "basic_block" ? node.expression.block : undefined;
+
+    const branchEntry = this.stackSimulator.takeStackSnapshot();
 
     this.pushSwitchJumpHints(node);
     try {
       const cases: NWScriptSwitchCaseNode[] = [];
+      const exits: NWScriptStackSnapshot[] = [];
       for (const switchCase of node.cases) {
-        const caseBody = this.convertControlNodeToBlock(switchCase.body, functionContext);
+        const branch = this.convertBranchFromSnapshot(
+          switchCase.body,
+          functionContext,
+          branchEntry
+        );
+        const caseBody = branch.body;
+        exits.push(branch.exit);
         const caseValueExpr = NWScriptExpression.constant(
           switchCase.value,
           NWScriptDataType.INTEGER
@@ -1276,11 +2776,20 @@ export class NWScriptControlNodeToASTConverter {
         cases.push(NWScriptAST.createSwitchCase(caseValueExpr, caseBody));
       }
 
-      const defaultCase = node.defaultCase
-        ? NWScriptAST.createSwitchDefault(
-          this.convertControlNodeToBlock(node.defaultCase, functionContext)
-        )
-        : undefined;
+      let defaultCase: NWScriptSwitchDefaultNode | undefined;
+      if (node.defaultCase) {
+        const branch = this.convertBranchFromSnapshot(
+          node.defaultCase,
+          functionContext,
+          branchEntry
+        );
+        exits.push(branch.exit);
+        defaultCase = NWScriptAST.createSwitchDefault(branch.body);
+      } else {
+        exits.push(branchEntry);
+      }
+
+      this.restoreControlFlowJoin(exits, 'switch join', branchEntry);
 
       return NWScriptAST.createSwitch(expression, cases, defaultCase, headerBlock);
     } finally {
@@ -1296,6 +2805,36 @@ export class NWScriptControlNodeToASTConverter {
     functionContext: NWScriptFunction | null,
     parentNode?: IfNode | IfElseNode
   ): NWScriptExpression {
+    if (conditionNode.type === 'basic_block' && conditionNode.block.conditionInstruction) {
+      const block = conditionNode.block;
+      const alreadyRecovered = this.conditionExpressions.get(block);
+      if (alreadyRecovered) {
+        return alreadyRecovered;
+      }
+      const conditionInstruction = block.conditionInstruction;
+      const entry = this.stackSimulator.takeStackSnapshot();
+      const simulator = this.createConfiguredTempStackSimulator(functionContext, entry);
+      let condition: NWScriptExpression | null = null;
+
+      for (const instruction of block.instructions) {
+        if (instruction === conditionInstruction) {
+          condition = simulator.peek()?.expression ?? null;
+        }
+        simulator.processInstruction(instruction);
+        if (instruction === conditionInstruction) {
+          break;
+        }
+      }
+
+      this.conditionExitSnapshots.set(block, simulator.takeStackSnapshot());
+      if (condition) {
+        return condition;
+      }
+      return NWScriptExpression.unknown(
+        `condition block ${block.id} did not produce a branch value`
+      );
+    }
+
     // If it's a basic block, extract condition from the block
     if (conditionNode.type === 'basic_block') {
       const block = conditionNode.block;
@@ -1313,25 +2852,13 @@ export class NWScriptControlNodeToASTConverter {
         // Setup AND chain detector with function context
         if (functionContext) {
           this.andChainDetector.setFunctionParameters(functionContext.parameters);
-          const globalVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-          for (let i = 0; i < this.globalInits.length; i++) {
-            const init = this.globalInits[i];
-            const varName = `globalVar_${i}`;
-            const offsetSigned = init.offset > 0x7FFFFFFF ? init.offset - 0x100000000 : init.offset;
-            globalVarMap.set(offsetSigned, { name: varName, dataType: init.dataType });
-          }
-          this.andChainDetector.setGlobalVariables(globalVarMap);
+          this.andChainDetector.setGlobalVariables(this.globalVariableMap);
           
-          const localVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-          for (let i = 0; i < this.localInits.length; i++) {
-            const init = this.localInits[i];
-            const varName = `localVar_${i}`;
-            localVarMap.set(init.offset, { name: varName, dataType: init.dataType });
-          }
+          const localVarMap = this.getLocalVariableOffsetMapForFunction(functionContext);
           this.andChainDetector.setLocalVariables(localVarMap);
 
           this.orChainDetector.setFunctionParameters(functionContext.parameters);
-          this.orChainDetector.setGlobalVariables(globalVarMap);
+          this.orChainDetector.setGlobalVariables(this.globalVariableMap);
           this.orChainDetector.setLocalVariables(localVarMap);
         }
 
@@ -1436,28 +2963,8 @@ export class NWScriptControlNodeToASTConverter {
                   nwscriptDecompilerDebug(`[extractConditionFromBlock] Body block ${bodyBlock.id} instructions:`, bodyBlock.instructions.map((instr: NWScriptInstruction) => 
                     `${instr.address.toString(16).padStart(8, '0')} ${instr.codeName}`
                   ).join(', '));
-                  let hasLogAndII = bodyBlock.instructions.some((instr: NWScriptInstruction) => instr.code === OP_LOGANDII);
+                  const hasLogAndII = bodyBlock.instructions.some((instr: NWScriptInstruction) => instr.code === OP_LOGANDII);
                   nwscriptDecompilerDebug(`[extractConditionFromBlock] Body block ${bodyBlock.id} has LOGANDII in instruction list: ${hasLogAndII}`);
-                  
-                  // Also check if LOGANDII is between body block end and next block start
-                  // LOGANDII might be at address 162, which is between block 3 (ends 164) and block 4 (starts 164)
-                  const logAndIIAddr = 0x162; // From assembly
-                  if (bodyRange.end >= logAndIIAddr && bodyRange.start <= logAndIIAddr) {
-                    nwscriptDecompilerDebug(`[extractConditionFromBlock] LOGANDII at ${logAndIIAddr.toString(16)} is within body block ${bodyBlock.id} address range`);
-                    // Check if it's in the instruction list
-                    const logAndIIInstr = bodyBlock.instructions.find((instr: NWScriptInstruction) => instr.address === logAndIIAddr);
-                    if (!logAndIIInstr) {
-                      nwscriptDecompilerDebug(`[extractConditionFromBlock] WARNING: LOGANDII at ${logAndIIAddr.toString(16)} is in address range but not in instruction list!`);
-                      // Try to find it in the CFG
-                      const allInstrs = Array.from(this.cfg.script.instructions.values());
-                      const logAndII = allInstrs.find(instr => instr.address === logAndIIAddr);
-                      if (logAndII) {
-                        nwscriptDecompilerDebug(`[extractConditionFromBlock] Found LOGANDII instruction in CFG at ${logAndIIAddr.toString(16)}`);
-                        // Force cross-block extraction
-                        hasLogAndII = true;
-                      }
-                    }
-                  }
                   
                   if (hasLogAndII) {
                     nwscriptDecompilerDebug(`[extractConditionFromBlock] Attempting cross-block AND condition extraction...`);
@@ -1482,7 +2989,7 @@ export class NWScriptControlNodeToASTConverter {
                     // during pre-condition processing, not a new one!
                     const varStackPositions = this.functionVariableStackPositions.get(functionContext) || new Map<number, number>();
                     
-                    const tempStackSim = this.createTempStackSimulator();
+                    const tempStackSim = this.createTempStackSimulator(functionContext);
                     if (functionContext) {
                       tempStackSim.setFunctionParameters(functionContext.parameters);
                     }
@@ -1490,9 +2997,20 @@ export class NWScriptControlNodeToASTConverter {
                     tempStackSim.setLocalVariables(this.stackSimulator.getLocalVariables());
                     // Use the existing variable stack positions map
                     tempStackSim.setVariableStackPositions(varStackPositions);
-                    tempStackSim.setLocalVariableInits(this.localInits);
+                    tempStackSim.setLocalVariableAllocationIndices(
+                      this.getLocalAllocationIndicesForFunction(functionContext)
+                    );
+                    const functionLocalInits = this.getLocalInitsForFunction(functionContext);
+                    const functionLocalSlots = this.getLocalStackSlotsForFunction(functionContext);
+                    tempStackSim.setLocalVariableInits(functionLocalSlots);
+                    tempStackSim.setVectorLocalAllocationStarts(
+                      this.getVectorLocalAllocationStarts(functionContext)
+                    );
+                    tempStackSim.setStructureLocalLayouts(
+                      this.getStructureLocalLayouts(functionContext)
+                    );
                     
-                    const tempExprBuilder = this.createTempExpressionBuilder();
+                    const tempExprBuilder = this.createTempExpressionBuilder(functionContext);
                     if (functionContext) {
                       tempExprBuilder.setFunctionParameters(functionContext.parameters);
                     }
@@ -1500,7 +3018,16 @@ export class NWScriptControlNodeToASTConverter {
                     tempExprBuilder.setLocalVariables(this.stackSimulator.getLocalVariables());
                     // Use the existing variable stack positions map
                     tempExprBuilder.setVariableStackPositions(varStackPositions);
-                    tempExprBuilder.setLocalVariableInits(this.localInits);
+                    tempExprBuilder.setLocalVariableAllocationIndices(
+                      this.getLocalAllocationIndicesForFunction(functionContext)
+                    );
+                    tempExprBuilder.setLocalVariableInits(functionLocalSlots);
+                    tempExprBuilder.setVectorLocalAllocationStarts(
+                      this.getVectorLocalAllocationStarts(functionContext)
+                    );
+                    tempExprBuilder.setStructureLocalLayouts(
+                      this.getStructureLocalLayouts(functionContext)
+                    );
                     
                     // Process all instructions up to and including EQUAL through both simulators
                     // The variable stack positions map is already correct from pre-condition processing
@@ -1588,7 +3115,7 @@ export class NWScriptControlNodeToASTConverter {
                       // The stack state should be correct after processing all instructions up to EQUAL
                       const bodyStartSP = tempStackSim.getStackPointer();
                       
-                      const bodyStackSim = this.createTempStackSimulator();
+                      const bodyStackSim = this.createTempStackSimulator(functionContext);
                       if (functionContext) {
                         bodyStackSim.setFunctionParameters(functionContext.parameters);
                       }
@@ -1596,7 +3123,16 @@ export class NWScriptControlNodeToASTConverter {
                       bodyStackSim.setLocalVariables(this.stackSimulator.getLocalVariables());
                       // Use the existing variable stack positions map (same as tempStackSim)
                       bodyStackSim.setVariableStackPositions(varStackPositions);
-                      bodyStackSim.setLocalVariableInits(this.localInits);
+                      bodyStackSim.setLocalVariableAllocationIndices(
+                        this.getLocalAllocationIndicesForFunction(functionContext)
+                      );
+                      bodyStackSim.setLocalVariableInits(functionLocalSlots);
+                      bodyStackSim.setVectorLocalAllocationStarts(
+                        this.getVectorLocalAllocationStarts(functionContext)
+                      );
+                      bodyStackSim.setStructureLocalLayouts(
+                        this.getStructureLocalLayouts(functionContext)
+                      );
                       
                       // Re-process all instructions from the start to get the correct stack state
                       // This ensures MOVSP and other stack manipulation instructions are tracked
@@ -1605,7 +3141,7 @@ export class NWScriptControlNodeToASTConverter {
                         bodyStackSim.processInstruction(instr);
                       }
                       
-                      const bodyExprBuilder = this.createTempExpressionBuilder();
+                      const bodyExprBuilder = this.createTempExpressionBuilder(functionContext);
                       if (functionContext) {
                         bodyExprBuilder.setFunctionParameters(functionContext.parameters);
                       }
@@ -1613,7 +3149,16 @@ export class NWScriptControlNodeToASTConverter {
                       bodyExprBuilder.setLocalVariables(this.stackSimulator.getLocalVariables());
                       // Use the existing variable stack positions map
                       bodyExprBuilder.setVariableStackPositions(varStackPositions);
-                      bodyExprBuilder.setLocalVariableInits(this.localInits);
+                      bodyExprBuilder.setLocalVariableAllocationIndices(
+                        this.getLocalAllocationIndicesForFunction(functionContext)
+                      );
+                      bodyExprBuilder.setLocalVariableInits(functionLocalSlots);
+                      bodyExprBuilder.setVectorLocalAllocationStarts(
+                        this.getVectorLocalAllocationStarts(functionContext)
+                      );
+                      bodyExprBuilder.setStructureLocalLayouts(
+                        this.getStructureLocalLayouts(functionContext)
+                      );
                       
                       // Process body block instructions up to GT
                       nwscriptDecompilerDebug(`[extractConditionFromBlock] Processing body block instructions for second condition...`);
@@ -1742,31 +3287,30 @@ export class NWScriptControlNodeToASTConverter {
         // Fallback: process all instructions up to the condition
         // This will re-process pre-condition instructions, but should work
         // Create a temporary expression builder to extract the condition
-        const tempExprBuilder = this.createTempExpressionBuilder();
+        const tempExprBuilder = this.createTempExpressionBuilder(functionContext);
         if (functionContext) {
           tempExprBuilder.setFunctionParameters(functionContext.parameters);
-          const globalVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-          for (let i = 0; i < this.globalInits.length; i++) {
-            const init = this.globalInits[i];
-            const varName = `globalVar_${i}`;
-            const offsetSigned = init.offset > 0x7FFFFFFF ? init.offset - 0x100000000 : init.offset;
-            globalVarMap.set(offsetSigned, { name: varName, dataType: init.dataType });
-          }
-          tempExprBuilder.setGlobalVariables(globalVarMap);
+          tempExprBuilder.setGlobalVariables(this.globalVariableMap);
           
-          const localVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-          for (let i = 0; i < this.localInits.length; i++) {
-            const init = this.localInits[i];
-            const varName = `localVar_${i}`;
-            localVarMap.set(init.offset, { name: varName, dataType: init.dataType });
-          }
+          const localVarMap = this.getLocalVariableOffsetMapForFunction(functionContext);
           tempExprBuilder.setLocalVariables(localVarMap);
         }
         
         // Get variable stack positions for this function
         const variableStackPositions = this.functionVariableStackPositions.get(functionContext) || new Map();
         tempExprBuilder.setVariableStackPositions(variableStackPositions);
-        tempExprBuilder.setLocalVariableInits(this.localInits);
+        tempExprBuilder.setLocalVariableAllocationIndices(
+          this.getLocalAllocationIndicesForFunction(functionContext)
+        );
+        tempExprBuilder.setLocalVariableInits(
+          this.getLocalStackSlotsForFunction(functionContext)
+        );
+        tempExprBuilder.setVectorLocalAllocationStarts(
+          this.getVectorLocalAllocationStarts(functionContext)
+        );
+        tempExprBuilder.setStructureLocalLayouts(
+          this.getStructureLocalLayouts(functionContext)
+        );
         
         // Process instructions up to the condition
         for (const instr of block.instructions) {
@@ -1784,8 +3328,7 @@ export class NWScriptControlNodeToASTConverter {
       }
     }
     
-    // Fallback: return a default expression
-    return NWScriptExpression.constant(1, NWScriptDataType.INTEGER);
+    return NWScriptExpression.unknown('unable to recover structured condition');
   }
 
   /**
@@ -1828,31 +3371,30 @@ export class NWScriptControlNodeToASTConverter {
     }
     
     // Setup expression builder
-    const tempExprBuilder = this.createTempExpressionBuilder();
+    const tempExprBuilder = this.createTempExpressionBuilder(functionContext);
     if (functionContext) {
       tempExprBuilder.setFunctionParameters(functionContext.parameters);
-      const globalVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-      for (let i = 0; i < this.globalInits.length; i++) {
-        const init = this.globalInits[i];
-        const varName = `globalVar_${i}`;
-        const offsetSigned = init.offset > 0x7FFFFFFF ? init.offset - 0x100000000 : init.offset;
-        globalVarMap.set(offsetSigned, { name: varName, dataType: init.dataType });
-      }
-      tempExprBuilder.setGlobalVariables(globalVarMap);
+      tempExprBuilder.setGlobalVariables(this.globalVariableMap);
       
-      const localVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
-      for (let i = 0; i < this.localInits.length; i++) {
-        const init = this.localInits[i];
-        const varName = `localVar_${i}`;
-        localVarMap.set(init.offset, { name: varName, dataType: init.dataType });
-      }
+      const localVarMap = this.getLocalVariableOffsetMapForFunction(functionContext);
       tempExprBuilder.setLocalVariables(localVarMap);
     }
     
     // Get variable stack positions for this function
     const variableStackPositions = this.functionVariableStackPositions.get(functionContext) || new Map();
     tempExprBuilder.setVariableStackPositions(variableStackPositions);
-    tempExprBuilder.setLocalVariableInits(this.localInits);
+    tempExprBuilder.setLocalVariableAllocationIndices(
+      this.getLocalAllocationIndicesForFunction(functionContext)
+    );
+    tempExprBuilder.setLocalVariableInits(
+      this.getLocalStackSlotsForFunction(functionContext)
+    );
+    tempExprBuilder.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(functionContext)
+    );
+    tempExprBuilder.setStructureLocalLayouts(
+      this.getStructureLocalLayouts(functionContext)
+    );
     
     // Process all instructions from first block up to its condition instruction
     if (firstBlock.conditionInstruction) {
@@ -1953,36 +3495,30 @@ export class NWScriptControlNodeToASTConverter {
       return null;
     }
 
-    const tempExprBuilder = this.createTempExpressionBuilder();
+    const tempExprBuilder = this.createTempExpressionBuilder(functionContext);
     if (functionContext) {
       tempExprBuilder.setFunctionParameters(functionContext.parameters);
-      const globalVarMap = new Map<number, { name: string; dataType: NWScriptDataType }>();
-      for (let i = 0; i < this.globalInits.length; i++) {
-        const init = this.globalInits[i];
-        const offsetSigned =
-          init.offset > 0x7fffffff ? init.offset - 0x100000000 : init.offset;
-        globalVarMap.set(offsetSigned, {
-          name: `globalVar_${i}`,
-          dataType: init.dataType,
-        });
-      }
-      tempExprBuilder.setGlobalVariables(globalVarMap);
+      tempExprBuilder.setGlobalVariables(this.globalVariableMap);
 
-      const localVarMap = new Map<number, { name: string; dataType: NWScriptDataType }>();
-      for (let i = 0; i < this.localInits.length; i++) {
-        const init = this.localInits[i];
-        localVarMap.set(init.offset, {
-          name: `localVar_${i}`,
-          dataType: init.dataType,
-        });
-      }
+      const localVarMap = this.getLocalVariableOffsetMapForFunction(functionContext);
       tempExprBuilder.setLocalVariables(localVarMap);
     }
 
     const variableStackPositions =
       this.functionVariableStackPositions.get(functionContext) || new Map();
     tempExprBuilder.setVariableStackPositions(variableStackPositions);
-    tempExprBuilder.setLocalVariableInits(this.localInits);
+    tempExprBuilder.setLocalVariableAllocationIndices(
+      this.getLocalAllocationIndicesForFunction(functionContext)
+    );
+    tempExprBuilder.setLocalVariableInits(
+      this.getLocalStackSlotsForFunction(functionContext)
+    );
+    tempExprBuilder.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(functionContext)
+    );
+    tempExprBuilder.setStructureLocalLayouts(
+      this.getStructureLocalLayouts(functionContext)
+    );
 
     if (firstBlock.conditionInstruction) {
       const conditionIndex = firstBlock.instructions.indexOf(firstBlock.conditionInstruction);
@@ -2082,28 +3618,31 @@ export class NWScriptControlNodeToASTConverter {
 
     let sp = this.functionEntryStackPointers.get(fc);
     if (sp === undefined) {
-      sp = this.calculateFunctionEntryStackPointer(fc);
-      if (sp !== undefined) {
-        this.functionEntryStackPointers.set(fc, sp);
-      }
-    }
-    if (sp === undefined) {
-      sp = 0;
+      sp = nwscriptParametersTotalBytes(fc.parameters) +
+        nwscriptDataTypeStackBytes(fc.returnType);
+      this.functionEntryStackPointers.set(fc, sp);
     }
 
-    let varIdx = this.functionVariableCounts.get(fc) ?? 0;
     const map = new Map<number, number>();
+    this.functionVariableStackPositions.set(fc, map);
 
     let cur: NWScriptInstruction | null | undefined = fc.entryBlock.startInstruction;
-    let guard = 100000;
-    while (cur && cur.address < endExclusiveAddr && guard-- > 0) {
-      if (cur.code === OP_RSADD) {
-        map.set(sp, varIdx);
-        varIdx++;
+    const visited = new Set<number>();
+    while (
+      cur &&
+      cur.address < endExclusiveAddr &&
+      !visited.has(cur.address)
+    ) {
+      visited.add(cur.address);
+      if (
+        cur.code === OP_RSADD &&
+        !this.jsrReturnReservationAddresses.has(cur.address)
+      ) {
+        this.registerLocalAllocation(fc, cur.address, sp);
       }
 
       if (cur.code === OP_JSR && cur.offset !== undefined) {
-        const targetPc = cur.address + cur.offset;
+        const targetPc = cur.address + toSignedInt32(cur.offset);
         const slots = this.jsrCalleeArgSlotsByEntryPc.get(targetPc) ?? 0;
         sp -= slots * 4;
         cur = cur.nextInstr;
@@ -2122,12 +3661,12 @@ export class NWScriptControlNodeToASTConverter {
       return;
     }
     this.functionVariableStackPositions.set(fc, map);
-    this.functionVariableCounts.set(fc, varIdx);
   }
 
   /**
-   * Run the current stack forward through {@code target}'s basic block through {@code target}, then peek.
-   * Restores stack afterward (used for switch discriminant CPTOP that may not live in struct header block).
+   * Run the canonical stack through the instruction that produces a switch discriminant.
+   * The value must remain live: compiler dispatch rows copy it and the switch-exit MOVSP
+   * removes it. Restoring the entry snapshot here made that cleanup consume a real local.
    */
   private extractExpressionUpToInstruction(
     target: NWScriptInstruction,
@@ -2135,7 +3674,7 @@ export class NWScriptControlNodeToASTConverter {
   ): NWScriptExpression {
     const block = this.cfg.getBlockForAddress(target.address);
     if (!block) {
-      return NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
+      return NWScriptExpression.unknown('switch discriminant instruction is not in the CFG');
     }
     let ctx = functionContext;
     if (!ctx) {
@@ -2153,28 +3692,34 @@ export class NWScriptControlNodeToASTConverter {
       this.functionVariableStackPositions.get(efCtx) ??
       new Map();
     this.stackSimulator.setVariableStackPositions(variableStackPositions);
-    this.stackSimulator.setLocalVariableInits(this.localInits);
+    this.stackSimulator.setLocalVariableAllocationIndices(
+      this.getLocalAllocationIndicesForFunction(efCtx)
+    );
+    this.stackSimulator.setLocalVariableInits(
+      this.getLocalStackSlotsForFunction(efCtx)
+    );
+    this.stackSimulator.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(efCtx)
+    );
+    this.stackSimulator.setStructureLocalLayouts(
+      this.getStructureLocalLayouts(efCtx)
+    );
 
-    const snap = this.stackSimulator.takeStackSnapshot();
-    try {
-      for (const ins of block.instructions) {
-        this.stackSimulator.processInstruction(ins);
-        if (ins.address === target.address) {
-          const stackTop = this.stackSimulator.peek();
-          if (stackTop) {
-            return stackTop.expression;
-          }
-          break;
+    for (const ins of block.instructions) {
+      this.stackSimulator.processInstruction(ins);
+      if (ins.address === target.address) {
+        const stackTop = this.stackSimulator.peek();
+        if (stackTop) {
+          return stackTop.expression;
         }
+        break;
       }
-      const stackTop = this.stackSimulator.peek();
-      if (stackTop) {
-        return stackTop.expression;
-      }
-    } finally {
-      this.stackSimulator.restoreStackSnapshot(snap);
     }
-    return NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
+    const stackTop = this.stackSimulator.peek();
+    if (stackTop) {
+      return stackTop.expression;
+    }
+    return NWScriptExpression.unknown('unable to recover switch discriminant');
   }
 
   /**
@@ -2207,7 +3752,18 @@ export class NWScriptControlNodeToASTConverter {
         this.functionVariableStackPositions.get(efFn) ??
         new Map();
       this.stackSimulator.setVariableStackPositions(variableStackPositions);
-      this.stackSimulator.setLocalVariableInits(this.localInits);
+      this.stackSimulator.setLocalVariableAllocationIndices(
+        this.getLocalAllocationIndicesForFunction(efFn)
+      );
+      this.stackSimulator.setLocalVariableInits(
+        this.getLocalStackSlotsForFunction(efFn)
+      );
+      this.stackSimulator.setVectorLocalAllocationStarts(
+        this.getVectorLocalAllocationStarts(efFn)
+      );
+      this.stackSimulator.setStructureLocalLayouts(
+        this.getStructureLocalLayouts(efFn)
+      );
 
       const snap = this.stackSimulator.takeStackSnapshot();
       try {
@@ -2223,8 +3779,7 @@ export class NWScriptControlNodeToASTConverter {
       }
     }
     
-    // Fallback: return a default expression
-    return NWScriptExpression.constant(0, NWScriptDataType.INTEGER);
+    return NWScriptExpression.unknown('unable to recover block expression');
   }
 
   /**
@@ -2236,265 +3791,94 @@ export class NWScriptControlNodeToASTConverter {
    * a fallback, and provides variable info for the stack simulator.
    */
   private setupFunctionContext(func: NWScriptFunction): void {
+    this.seedFunctionAllocationIndices(func);
+    this.precomputeVectorLocalAllocationStarts(func);
     // Setup local variables for this function
     // We only need to map CPDOWNSP offsets (for writes) - CPTOPSP uses stack-aware resolution
-    const localVarMap = new Map<number, { name: string, dataType: NWScriptDataType }>();
+    const localVarMap = this.getLocalVariableOffsetMapForFunction(func);
     
-    for (let i = 0; i < this.localInits.length; i++) {
-      const init = this.localInits[i];
-      const varName = `localVar_${i}`;
-      
-      // Map by the CPDOWNSP offset (for writes) - this is static and known from the analyzer
-      const cpdownspOffset = init.offset;
-      localVarMap.set(cpdownspOffset, { name: varName, dataType: init.dataType });
-    }
-    
-    // Set local variables in both builders (for backward compatibility and CPDOWNSP writes)
-    // The stack simulator will use stack-aware resolution for CPTOPSP reads
-    this.expressionBuilder.setLocalVariables(localVarMap);
+    // The stack simulator uses stack-aware resolution for CPTOPSP reads.
     this.stackSimulator.setLocalVariables(localVarMap);
+    this.stackSimulator.setVariableStackPositions(
+      this.functionVariableStackPositions.get(func) ?? new Map()
+    );
+    this.stackSimulator.setLocalVariableAllocationIndices(
+      this.getLocalAllocationIndicesForFunction(func)
+    );
+    this.stackSimulator.setLocalVariableInits(
+      this.getLocalStackSlotsForFunction(func)
+    );
+    this.stackSimulator.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(func)
+    );
+    this.stackSimulator.setStructureLocalLayouts(
+      this.getStructureLocalLayouts(func)
+    );
+    this.stackSimulator.setVariableTypeObserver(this.parameterTypeObserver(func));
     
     // Setup function parameters
     this.setFunctionParametersForBuilders(func);
     
-    // Calculate and track the return value stack position
-    // The return value position is where RSADD reserved space before the JSR that calls this function
-    if (!this.functionReturnValueOffsets.has(func)) {
-      nwscriptDecompilerDebug(`[setupFunctionContext] Calculating return value position for function ${func.name}...`);
-      
-      // First, simulate stack to function entry to get entry stack pointer
-      const entrySP = this.calculateFunctionEntryStackPointer(func);
-      nwscriptDecompilerDebug(`[setupFunctionContext] Function ${func.name}: Calculated entry SP = ${entrySP}`);
-      if (entrySP !== undefined) {
-        this.functionEntryStackPointers.set(func, entrySP);
-      }
-      
-      // Then calculate return value position and convert to offset from entry
-      const returnValuePos = this.calculateReturnValuePosition(func);
-      nwscriptDecompilerDebug(`[setupFunctionContext] Function ${func.name}: Calculated return value absolute position = ${returnValuePos}`);
-      
-      if (returnValuePos !== undefined && entrySP !== undefined) {
-        const returnValueOffset = returnValuePos - entrySP;
-        this.functionReturnValueOffsets.set(func, returnValueOffset);
-        nwscriptDecompilerDebug(`[setupFunctionContext] ✓ Function ${func.name}: Entry SP = ${entrySP}, Return value absolute pos = ${returnValuePos}, Return value offset = ${returnValueOffset}`);
-      } else {
-        nwscriptDecompilerDebug(`[setupFunctionContext] ✗ Function ${func.name}: Missing entrySP (${entrySP}) or returnValuePos (${returnValuePos})`);
-      }
+    // Model a procedure relative to the bottom of its own ABI frame. Absolute caller SP is
+    // irrelevant and cannot be recovered by linearly walking bytecode across branches/callees.
+    const entrySP = nwscriptParametersTotalBytes(func.parameters) +
+      (func.returnStackSlots ?? stackSlotsForDataType(func.returnType)) * 4;
+    this.functionEntryStackPointers.set(func, entrySP);
+    if (func.returnType !== NWScriptDataType.VOID) {
+      this.functionReturnValueOffsets.set(func, -entrySP);
     } else {
-      const existingOffset = this.functionReturnValueOffsets.get(func);
-      const existingEntrySP = this.functionEntryStackPointers.get(func);
-      nwscriptDecompilerDebug(`[setupFunctionContext] Function ${func.name}: Using cached return value offset = ${existingOffset}, entry SP = ${existingEntrySP}`);
+      this.functionReturnValueOffsets.delete(func);
     }
   }
   
-  /**
-   * Calculate the function entry stack pointer
-   * This is the stack pointer value when the function starts executing
-   * For functions called via JSR, this is the SP at the JSR instruction (before jumping)
-   * For main function, this is the SP at the function's first instruction
-   */
-  private calculateFunctionEntryStackPointer(func: NWScriptFunction): number | undefined {
-    const tempSim = this.createTempStackSimulator();
-    const entryBlock = this.cfg.entryBlock;
-    if (!entryBlock) {
-      return undefined;
-    }
-    
-    if (func.jsrInstruction) {
-      // For functions called via JSR, the entry SP is the SP at the JSR instruction
-      // (the function starts executing at the JSR target, with the same stack state as at JSR)
-      const jsrInstr = func.jsrInstruction;
-      let simCurrent = entryBlock.startInstruction;
-      
-      while (simCurrent && simCurrent.address < jsrInstr.address) {
-        tempSim.processInstruction(simCurrent);
-        simCurrent = simCurrent.nextInstr;
-      }
-      
-      const entrySP = tempSim.getStackPointer();
-      nwscriptDecompilerDebug(`[calculateFunctionEntryStackPointer] Function ${func.name}: JSR at ${jsrInstr.address.toString(16)}, Entry SP (at JSR) = ${entrySP}`);
-      return entrySP;
-    } else {
-      // For main function, check if there's a JSR that calls it
-      // If the function has a return type, it was likely called via JSR with RSADD before it
-      // Find the JSR that targets this function's entry address
-      const funcEntryAddress = func.entryBlock.startInstruction.address;
-      let jsrInstr: NWScriptInstruction | null = null;
-      
-      // Search for JSR that targets this function
-      for (const instruction of this.cfg.script.instructions.values()) {
-        if (instruction.code === OP_JSR && instruction.offset !== undefined) {
-          const jsrTarget = instruction.address + instruction.offset;
-          if (jsrTarget === funcEntryAddress) {
-            jsrInstr = instruction;
-            break;
-          }
-        }
-      }
-      
-      if (jsrInstr) {
-        // Found JSR that calls this function - use SP at JSR
-        let simCurrent = entryBlock.startInstruction;
-        while (simCurrent && simCurrent.address < jsrInstr.address) {
-          tempSim.processInstruction(simCurrent);
-          simCurrent = simCurrent.nextInstr;
-        }
-        const entrySP = tempSim.getStackPointer();
-        nwscriptDecompilerDebug(`[calculateFunctionEntryStackPointer] Function ${func.name}: Found JSR at ${jsrInstr.address.toString(16)} calling entry ${funcEntryAddress.toString(16)}, Entry SP (at JSR) = ${entrySP}`);
-        return entrySP;
-      } else {
-        // No JSR found - simulate to function entry
-        let simCurrent = entryBlock.startInstruction;
-        while (simCurrent && simCurrent.address < funcEntryAddress) {
-          tempSim.processInstruction(simCurrent);
-          simCurrent = simCurrent.nextInstr;
-        }
-        const entrySP = tempSim.getStackPointer();
-        nwscriptDecompilerDebug(`[calculateFunctionEntryStackPointer] Function ${func.name}: Entry address = ${funcEntryAddress.toString(16)}, Entry SP = ${entrySP}`);
-        return entrySP;
-      }
-    }
-  }
-  
-  /**
-   * Calculate the return value stack position for a function
-   * This is the stack position where RSADD reserved space before the JSR that calls the function
-   */
-  private calculateReturnValuePosition(func: NWScriptFunction): number | undefined {
-    if (!func.jsrInstruction) {
-      // Main function or function without JSR - check if there's an entry RSADD
-      // For main function, the entry RSADD (if present) reserves space for return value
-      if (func.isMain && func.entryBlock) {
-        // Look for RSADD before the first instruction in entry block
-        let current = func.entryBlock.startInstruction;
-        let rsaddInstr: NWScriptInstruction | null = null;
-        
-        // Search backwards from entry to find RSADD
-        while (current && current.prevInstr) {
-          current = current.prevInstr;
-          if (current.code === OP_RSADD) {
-            rsaddInstr = current;
-            break;
-          }
-        }
-        
-        if (rsaddInstr) {
-          // Simulate stack up to RSADD to get the stack position
-          const tempSim = this.createTempStackSimulator();
-          let simCurrent = this.cfg.entryBlock?.startInstruction;
-          const spBeforeRsadd = tempSim.getStackPointer();
-          nwscriptDecompilerDebug(`[calculateReturnValuePosition] Main function: SP before RSADD at ${rsaddInstr.address.toString(16)} = ${spBeforeRsadd}`);
-          while (simCurrent && simCurrent.address < rsaddInstr.address) {
-            tempSim.processInstruction(simCurrent);
-            simCurrent = simCurrent.nextInstr;
-          }
-          const spAtRsadd = tempSim.getStackPointer();
-          // RSADD reserves space at the current SP (before it pushes)
-          const returnValuePos = spAtRsadd;
-          nwscriptDecompilerDebug(`[calculateReturnValuePosition] Main function: SP at RSADD = ${spAtRsadd}, return value position = ${returnValuePos}`);
-          // Process RSADD to see what SP becomes after
-          tempSim.processInstruction(rsaddInstr);
-          const spAfterRsadd = tempSim.getStackPointer();
-          nwscriptDecompilerDebug(`[calculateReturnValuePosition] Main function: SP after RSADD = ${spAfterRsadd}`);
-          return returnValuePos;
-        }
-      }
-      return undefined;
-    }
-    
-    // For functions called via JSR, find the RSADD before the JSR
-    const jsrInstr = func.jsrInstruction;
-    const jsrBlock = this.cfg.getBlockForAddress(jsrInstr.address);
-    if (!jsrBlock) {
-      return undefined;
-    }
-    
-    // Look backwards from JSR to find RSADD
-    let current: NWScriptInstruction | null = jsrInstr.prevInstr;
-    let rsaddInstr: NWScriptInstruction | null = null;
-    
-    // Search within the same block first
-    while (current && current.address >= jsrBlock.startInstruction.address) {
-      if (current.code === OP_RSADD) {
-        rsaddInstr = current;
-        break;
-      }
-      current = current.prevInstr;
-    }
-    
-    if (!rsaddInstr) {
-      // RSADD might be in a previous block - check predecessors
-      for (const pred of jsrBlock.predecessors) {
-        if (pred.endInstruction && pred.endInstruction.code !== OP_JMP && 
-            pred.endInstruction.code !== OP_JZ && pred.endInstruction.code !== OP_JNZ) {
-          // Check the last few instructions of predecessor
-          let checkInstr = pred.endInstruction;
-          let checkCount = 0;
-          while (checkInstr && checkCount < 5) {
-            if (checkInstr.code === OP_RSADD) {
-              rsaddInstr = checkInstr;
-              break;
-            }
-            checkInstr = checkInstr.prevInstr;
-            checkCount++;
-          }
-          if (rsaddInstr) break;
-        }
-      }
-    }
-    
-    if (!rsaddInstr) {
-      nwscriptDecompilerDebug(`[calculateReturnValuePosition] Function ${func.name}: No RSADD found before JSR at ${jsrInstr.address.toString(16)}`);
-      return undefined;
-    }
-    
-    // Simulate stack up to RSADD to get the stack position
-    // We need to simulate from the entry block to the RSADD instruction
-    const tempSim = this.createTempStackSimulator();
-    const entryBlock = this.cfg.entryBlock;
-    if (!entryBlock) {
-      return undefined;
-    }
-    
-    // Simulate from entry to RSADD
-    let simCurrent = entryBlock.startInstruction;
-    while (simCurrent && simCurrent.address < rsaddInstr.address) {
-      tempSim.processInstruction(simCurrent);
-      simCurrent = simCurrent.nextInstr;
-    }
-    
-    const spAtRsadd = tempSim.getStackPointer();
-    // RSADD reserves space at the current SP (before it pushes)
-    const returnValuePos = spAtRsadd;
-    nwscriptDecompilerDebug(`[calculateReturnValuePosition] Function ${func.name}: SP at RSADD (before RSADD executes) = ${spAtRsadd}`);
-    // Process RSADD to see what SP becomes after
-    tempSim.processInstruction(rsaddInstr);
-    const spAfterRsadd = tempSim.getStackPointer();
-    nwscriptDecompilerDebug(`[calculateReturnValuePosition] Function ${func.name}: SP after RSADD = ${spAfterRsadd}`);
-    // Continue to JSR to see SP at function entry
-    while (simCurrent && simCurrent.address < jsrInstr.address) {
-      tempSim.processInstruction(simCurrent);
-      simCurrent = simCurrent.nextInstr;
-    }
-    // Process JSR (it doesn't change SP in this model; callee epilogue MOVSP clears args)
-    const spAtJsr = tempSim.getStackPointer();
-    nwscriptDecompilerDebug(`[calculateReturnValuePosition] Function ${func.name}: SP at JSR = ${spAtJsr}`);
-    nwscriptDecompilerDebug(`[calculateReturnValuePosition] Function ${func.name}: Found RSADD at ${rsaddInstr.address.toString(16)} before JSR at ${jsrInstr.address.toString(16)}, return value position = ${returnValuePos}`);
-    return returnValuePos;
-  }
-
   /**
    * Build global variable declarations
    */
   private buildGlobalVariableDeclarations(): NWScriptGlobalVariableDeclarationNode[] {
-    return this.globalInits.map((init, index) => {
+    const declarations: NWScriptGlobalVariableDeclarationNode[] = [];
+    const aggregateComponentOffsets = new Set<number>();
+    for (const [start, layout] of this.globalAggregateLayouts) {
+      for (let field = 1; field < layout.fieldTypes.length; field++) {
+        aggregateComponentOffsets.add(start + field * 4);
+      }
+    }
+
+    for (let index = 0; index < this.globalInits.length; index++) {
+      const init = this.globalInits[index];
+      const offset = toSignedInt32(init.offset);
+      if (aggregateComponentOffsets.has(offset)) continue;
+
+      const aggregate = this.globalAggregateLayouts.get(offset);
+      if (aggregate) {
+        const initializer = init.initialExpression &&
+          init.initializerStackSlots === aggregate.fieldTypes.length
+          ? init.initialExpression
+          : undefined;
+        declarations.push(NWScriptAST.createGlobalVariableDeclaration(
+          aggregate.name,
+          aggregate.dataType,
+          initializer,
+          aggregate.dataType === NWScriptDataType.STRUCTURE
+            ? this.getStructureTypeName(aggregate.fieldTypes)
+            : undefined
+        ));
+        continue;
+      }
+
       const name = `globalVar_${index}`;
-      const initializer = init.hasInitializer && init.initialValue !== undefined
-        ? NWScriptExpression.constant(init.initialValue, init.dataType)
-        : undefined;
-      
-      return NWScriptAST.createGlobalVariableDeclaration(name, init.dataType, initializer);
-    });
+      const initializer = init.initialExpression ?? (
+        init.hasInitializer && init.initialValue !== undefined
+          ? NWScriptExpression.constant(init.initialValue, init.dataType)
+          : undefined
+      );
+
+      declarations.push(NWScriptAST.createGlobalVariableDeclaration(
+        name,
+        init.dataType,
+        initializer
+      ));
+    }
+    return declarations;
   }
 
   /**
@@ -2508,54 +3892,120 @@ export class NWScriptControlNodeToASTConverter {
     const mainFunction = this.functions.find(f => f.isMain);
     if (mainFunction && mainControlNode) {
       const body = this.convertControlNodeToBlock(mainControlNode, mainFunction);
+      this.repairNonVoidTerminalReturn(mainFunction, body);
       const locals = this.buildLocalVariableDeclarations(mainFunction, body);
-      functionNodes.push(NWScriptAST.createFunction(
+      const mainNode = NWScriptAST.createFunction(
         mainFunction.name,
         mainFunction.returnType,
-        mainFunction.parameters.map(p => ({ name: p.name, type: p.dataType })),
+        mainFunction.parameters.map(p => ({
+          name: p.name,
+          type: p.dataType,
+          structName: p.structureFieldTypes
+            ? this.getStructureTypeName(p.structureFieldTypes)
+            : undefined,
+        })),
         body,
         locals,
         mainFunction.entryBlock
-      ));
+      );
+      if (mainFunction.returnStructureFieldTypes) {
+        mainNode.returnStructName = this.getStructureTypeName(
+          mainFunction.returnStructureFieldTypes
+        );
+      }
+      functionNodes.push(mainNode);
     }
     
     // Then add all other functions
     return this.functions
       .filter(func => !func.isMain) // Exclude main function (already added)
       .map(func => {
-        // Build ControlNode tree for this function
         const functionControlNode = structureBuilder.buildProcedure(func.entryBlock);
         
         // Convert ControlNode tree to block
         const body = this.convertControlNodeToBlock(functionControlNode, func);
+        this.repairNonVoidTerminalReturn(func, body);
         
         // Build local variable declarations (merge with assignments)
         const locals = this.buildLocalVariableDeclarations(func, body);
         
-        return NWScriptAST.createFunction(
+        const functionNode = NWScriptAST.createFunction(
           func.name,
           func.returnType,
-          func.parameters.map(p => ({ name: p.name, type: p.dataType })), // dataType -> type mapping
+          func.parameters.map(p => ({
+            name: p.name,
+            type: p.dataType,
+            structName: p.structureFieldTypes
+              ? this.getStructureTypeName(p.structureFieldTypes)
+              : undefined,
+          })),
           body, // body comes before locals
           locals,
           func.entryBlock
         );
+        if (func.returnStructureFieldTypes) {
+          functionNode.returnStructName = this.getStructureTypeName(
+            func.returnStructureFieldTypes
+          );
+        }
+        return functionNode;
       })
       .concat(functionNodes); // Add main function at the end
   }
 
   /**
-   * Build local variable declarations for a function
-   * Merges declarations with their first assignment if they occur together
+   * Restore a lexically trailing value-return block omitted from the structured tree.
+   * Shared epilogues are sometimes visited while converting a branch and then suppressed by
+   * block de-duplication at procedure scope. The expression was still recovered from its
+   * CPDOWNSP, so append the latest bytecode return only when the emitted non-void body can fall
+   * through (or replace its illegal bare RETN artifact).
    */
+  private repairNonVoidTerminalReturn(
+    func: NWScriptFunction,
+    body: NWScriptBlockNode
+  ): void {
+    if (func.returnType === NWScriptDataType.VOID || this.astBlockAlwaysTerminates(body)) return;
+    const candidate = Array.from(this.returnValueExpressions.entries())
+      .filter(([block, expression]) =>
+        func.bodyBlocks.includes(block) && expression.type !== NWScriptExpressionType.UNKNOWN
+      )
+      .sort(([left], [right]) =>
+        right.startInstruction.address - left.startInstruction.address
+      )[0]?.[1];
+    if (!candidate) return;
+
+    const last = body.statements.at(-1) as (NWScriptASTNode & { value?: NWScriptExpression }) | undefined;
+    if (last?.type === NWScriptASTNodeType.RETURN && !last.value) {
+      body.statements.pop();
+    }
+    body.statements.push(NWScriptAST.createReturn(candidate));
+    body.children = [...body.statements];
+  }
+
+  private astBlockAlwaysTerminates(block: NWScriptBlockNode): boolean {
+    const last = block.statements.at(-1);
+    if (!last) return false;
+    if (last.type === NWScriptASTNodeType.RETURN) {
+      return !!(last as NWScriptASTNode & { value?: NWScriptExpression }).value;
+    }
+    if (last.type === NWScriptASTNodeType.IF_ELSE) {
+      const branch = last as NWScriptIfElseNode;
+      return this.astBlockAlwaysTerminates(branch.thenBody) &&
+        this.astBlockAlwaysTerminates(branch.elseBody);
+    }
+    return false;
+  }
+
+  /** Build local declarations without hoisting a later control-dependent assignment. */
   private buildLocalVariableDeclarations(
     func: NWScriptFunction,
-    body?: NWScriptBlockNode
+    _body?: NWScriptBlockNode
   ): NWScriptVariableDeclarationNode[] {
     const rsaddSites = this.collectOrderedRsaddSitesInFunction(func);
 
     const sortedInits = this.localInits
       .filter(init =>
+        !this.jsrReturnReservationAddresses.has(init.instructionAddress) &&
         func.bodyBlocks.some(block => block.containsAddress(init.instructionAddress))
       )
       .sort((a, b) => a.instructionAddress - b.instructionAddress);
@@ -2567,64 +4017,60 @@ export class NWScriptControlNodeToASTConverter {
     );
 
     const declarations: NWScriptVariableDeclarationNode[] = [];
+    const vectorStarts = this.functionVectorLocalAllocationIndices.get(func) ?? new Set<number>();
+    const structureLayouts = this.getStructureLocalLayouts(func);
+    const aggregateComponents = new Set<number>();
+    for (const start of vectorStarts) {
+      aggregateComponents.add(start + 1);
+      aggregateComponents.add(start + 2);
+    }
+    for (const [start, fields] of structureLayouts) {
+      for (let field = 1; field < fields.length; field += 1) {
+        aggregateComponents.add(start + field);
+      }
+    }
     for (let i = 0; i < slotCount; i++) {
+      if (vectorStarts.has(i)) {
+        declarations.push(NWScriptAST.createVariableDeclaration(
+          `localVar_${i}`,
+          NWScriptDataType.VECTOR
+        ));
+        continue;
+      }
+      if (aggregateComponents.has(i)) continue;
       const site = rsaddSites[i];
       const init =
         site !== undefined
           ? sortedInits.find(ini => ini.instructionAddress === site.address)
           : sortedInits[i];
+      const optimized = site === undefined
+        ? undefined
+        : this.functionOptimizedScalarLocalSites.get(func)?.get(site.address);
 
-      const dataType = init?.dataType ?? site?.dataType ?? NWScriptDataType.INTEGER;
+      const dataType = vectorStarts.has(i)
+        ? NWScriptDataType.VECTOR
+        : structureLayouts.has(i)
+          ? NWScriptDataType.STRUCTURE
+          : init?.dataType ?? site?.dataType ?? NWScriptDataType.INTEGER;
       const initializer =
-        init !== undefined && init.hasInitializer && init.initialValue !== undefined
-          ? NWScriptExpression.constant(init.initialValue, init.dataType)
+        !vectorStarts.has(i) &&
+        !structureLayouts.has(i) &&
+        ((init?.hasInitializer && init.initialValue !== undefined) || optimized !== undefined)
+          ? NWScriptExpression.constant(
+              init?.initialValue ?? optimized!.initialValue,
+              init?.dataType ?? optimized!.dataType
+            )
           : undefined;
 
-      declarations.push(NWScriptAST.createVariableDeclaration(`localVar_${i}`, dataType, initializer));
+      const structureFields = structureLayouts.get(i);
+      declarations.push(NWScriptAST.createVariableDeclaration(
+        `localVar_${i}`,
+        dataType,
+        initializer,
+        structureFields ? this.getStructureTypeName(structureFields) : undefined
+      ));
     }
-    
-    // If body is provided, merge declarations with their first assignment
-    if (body && body.statements) {
-      const assignmentsToRemove: number[] = [];
-      
-      for (let i = 0; i < declarations.length; i++) {
-        const decl = declarations[i];
-        const varName = decl.name;
-        
-        // Find the first assignment to this variable in the body
-        for (let j = 0; j < body.statements.length; j++) {
-          const stmt = body.statements[j];
-          if (stmt.type === NWScriptASTNodeType.ASSIGNMENT) {
-            const assignStmt = stmt as NWScriptAssignmentNode;
-            if (assignStmt.variable === varName &&
-                !assignmentsToRemove.includes(j) &&
-                !decl.initializer) { // Only merge if declaration doesn't already have an initializer
-              // Found first assignment - merge into declaration
-              let merged: NWScriptExpression = assignStmt.value;
-              if (merged.type === NWScriptExpressionType.CONSTANT) {
-                if (decl.dataType === NWScriptDataType.STRING && merged.dataType === NWScriptDataType.INTEGER && merged.value === 0) {
-                  merged = NWScriptExpression.constant("", NWScriptDataType.STRING);
-                } else if (decl.dataType === NWScriptDataType.OBJECT && merged.dataType === NWScriptDataType.INTEGER && merged.value === 0) {
-                  merged = NWScriptExpression.constant(0, NWScriptDataType.OBJECT);
-                } else if (decl.dataType === NWScriptDataType.FLOAT && merged.dataType === NWScriptDataType.INTEGER) {
-                  merged = NWScriptExpression.constant(merged.value, NWScriptDataType.FLOAT);
-                }
-              }
-              decl.initializer = merged;
-              assignmentsToRemove.push(j);
-              break; // Only merge the first assignment
-            }
-          }
-        }
-      }
-      
-      // Remove merged assignments from body (in reverse order to maintain indices)
-      assignmentsToRemove.sort((a, b) => b - a);
-      for (const index of assignmentsToRemove) {
-        body.statements.splice(index, 1);
-      }
-    }
-    
+
     return declarations;
   }
 
@@ -2648,11 +4094,9 @@ export class NWScriptControlNodeToASTConverter {
       return false;
     }
     
-    // Look ahead past intermediate instructions to find RETN or JMP to RETN
-    // Intermediate instructions that we can skip: CPTOPSP, other CPDOWNSP (to different locations), MOVSP
-    // Limit: look ahead up to 5 instructions to avoid false positives
-    const lookAheadLimit = Math.min(cpdownspIndex + 7, block.instructions.length);
-    for (let i = cpdownspIndex + 2; i < lookAheadLimit; i++) {
+    // Walk to the next semantic barrier. The block boundary and explicit terminators already
+    // bound this search; a fixed instruction limit rejected valid large compiler epilogues.
+    for (let i = cpdownspIndex + 2; i < block.instructions.length; i++) {
       const instr = block.instructions[i];
       
       // If we find RETN directly, this is a return value write
@@ -2662,7 +4106,7 @@ export class NWScriptControlNodeToASTConverter {
       
       // If we find JMP, check if it targets RETN
       if (instr.code === OP_JMP && instr.offset !== undefined) {
-        const jmpTarget = instr.address + instr.offset;
+        const jmpTarget = instr.address + toSignedInt32(instr.offset);
         const targetBlock = this.cfg.getBlockForAddress(jmpTarget);
         if (targetBlock) {
           // Check if target block ends with RETN
@@ -2692,9 +4136,7 @@ export class NWScriptControlNodeToASTConverter {
       // Continue looking for RETN/JMP (skip intermediate instructions like CPTOPSP, MOVSP)
     }
     
-    // If we didn't find RETN or JMP to RETN within the look-ahead limit,
-    // this is NOT a return value write
+    // No return terminator was reachable in this block.
     return false;
   }
 }
-

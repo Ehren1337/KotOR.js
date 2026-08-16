@@ -4,12 +4,13 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { FileTypeManager } from "@/apps/forge/FileTypeManager";
 import { EditorFile } from "@/apps/forge/EditorFile";
-import { Form, ProgressBar } from "react-bootstrap";
+import { ForgeProgress, ForgeInput, ForgeInputGroup } from "@/apps/forge/components/ui";
+import "@/apps/forge/components/tabs/tab-resource-explorer/TabResourceExplorer.scss";
 import { FileBrowserNode } from "@/apps/forge/FileBrowserNode";
 import { ForgeTreeView } from "@/apps/forge/components/treeview/ForgeTreeView";
 import { ResourceListNode } from "@/apps/forge/components/treeview/ResourceListNode";
 import { useContextMenu, ContextMenuItem } from "@/apps/forge/components/common/ContextMenu";
-import { promptForDirectory, fileExists, writeFile } from "@/apps/forge/helpers/AssetExtraction";
+import { promptForDirectory, fileExists, writeFile, ArchiveReadCache, createThrottledProgress, createConcurrencyGate, WRITE_CONCURRENCY } from "@/apps/forge/helpers/AssetExtraction";
 import { createProgressModal, showExtractionResults } from "@/apps/forge/helpers/AssetExtraction";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { TabGFFEditorState, TabSSFEditorState, TabTLKEditorState } from "@/apps/forge/states/tabs";
@@ -26,7 +27,7 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
   const [visibleItems, setVisibleItems] = useState<FileBrowserNode[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const ITEMS_PER_PAGE = 100; // Virtual scrolling chunk size
-  const { showContextMenu, ContextMenuComponent } = useContextMenu('dark');
+  const { showContextMenu, ContextMenuComponent } = useContextMenu();
   let searchQuery = '';
   let searchDelay: any;
   let currentSearchId = 0;
@@ -71,12 +72,18 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
     const failedFiles: string[] = [];
     const progressModal = createProgressModal();
     const total = entries.length;
+    const progress = createThrottledProgress((current, tot, message) => {
+      progressModal.setProgress(current, tot, message);
+    });
+    const writeGate = createConcurrencyGate(WRITE_CONCURRENCY);
+    const pendingWrites: Promise<void>[] = [];
+    const archiveCache = new ArchiveReadCache();
 
     try {
       for (let i = 0; i < entries.length; i++) {
         const entry = entries[i];
         const current = i + 1;
-        progressModal.setProgress(current, total, `Exporting: ${entry.relativePath}`);
+        progress(current, total, `Exporting: ${entry.relativePath}`);
         try {
           const exists = await fileExists(entry.relativePath, target);
           if (exists) {
@@ -84,24 +91,33 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
             continue;
           }
 
-          const editorFile = new EditorFile({
-            path: entry.path,
-            useGameFileSystem: true,
-          });
-          const response = await editorFile.readFile();
-          if (!response?.buffer?.length) {
+          const buffer = await archiveCache.read(entry.path);
+          if (!buffer?.length) {
             failedFiles.push(entry.relativePath);
             continue;
           }
 
-          await writeFile(entry.relativePath, response.buffer, target);
-          exportedFiles.push(entry.relativePath);
+          await writeGate.acquire();
+          pendingWrites.push((async () => {
+            try {
+              await writeFile(entry.relativePath, buffer, target);
+              exportedFiles.push(entry.relativePath);
+            } catch (e) {
+              console.error('Resource export failed for', entry.relativePath, e);
+              failedFiles.push(entry.relativePath);
+            } finally {
+              writeGate.release();
+            }
+          })());
         } catch (e) {
           console.error('Resource export failed for', entry.relativePath, e);
           failedFiles.push(entry.relativePath);
         }
       }
+      await Promise.all(pendingWrites);
     } finally {
+      progress.flush();
+      await archiveCache.dispose();
       showExtractionResults({
         modelName: defaultName,
         modelCount: 0,
@@ -317,60 +333,42 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
   }, [visibleItems, onNodeContextMenu, onNodeToggle]);
   
   return (
-    <div className="flex-vertical" style={{
-      position: 'absolute',
-      top: '0px',
-      bottom: '0px',
-      left: '0px',
-      right: '0px',
-    }}>
-      <Form className="d-flex align-items-start" style={{
-        padding: '5px 0',
-      }}>
-        <span style={{padding: '5px'}}>
-          <i className="fa-solid fa-magnifying-glass"></i>
-        </span>
-        <Form.Control
-          type="search"
-          placeholder="Search"
-          className="me-2"
-          aria-label="Search"
-          onChange={onSearchInput}
-        />
-      </Form>
-      
-      <div style={{
-        display: `${!!loading ? 'block' : 'none'}`, 
-        padding: '5px',
-        width: '100%', 
-        height: '100px',
-      }}>
-        <div style={{}}>
-          <ProgressBar striped animated={true} now={100} label={`Searching...`} style={{
-            minWidth: '100%',
-            minHeight: '25px',
-          }}/>
+    <div className="resource-explorer">
+      <div className="resource-explorer__search">
+        <ForgeInputGroup>
+          <ForgeInputGroup.Text>
+            <i className="fa-solid fa-magnifying-glass" />
+          </ForgeInputGroup.Text>
+          <ForgeInput
+            type="search"
+            placeholder="Search"
+            aria-label="Search"
+            onChange={onSearchInput}
+          />
+        </ForgeInputGroup>
+      </div>
+
+      {loading ? (
+        <div className="resource-explorer__progress">
+          <ForgeProgress striped animated={true} value={100} label="Searching..." />
         </div>
-      </div>
-      <div className="scroll-container" style={{ 
-        display: `${!loading ? 'block' : 'none'}`, 
-        width:'100%', 
-        overflow: 'auto',
-      }}>
-        <ForgeTreeView>
-          {resourceListItems}
-        </ForgeTreeView>
-        {resourceList.length > visibleItems.length && (
-          <div style={{ padding: '10px', textAlign: 'center' }}>
-            <button 
-              className="btn btn-sm btn-outline-primary"
-              onClick={loadMoreItems}
-            >
-              Load More ({resourceList.length - visibleItems.length} remaining)
-            </button>
-          </div>
-        )}
-      </div>
+      ) : (
+        <div className="resource-explorer__tree">
+          <ForgeTreeView>
+            {resourceListItems}
+          </ForgeTreeView>
+          {resourceList.length > visibleItems.length && (
+            <div className="resource-explorer__load-more">
+              <button
+                className="forge-btn forge-btn--sm"
+                onClick={loadMoreItems}
+              >
+                Load More ({resourceList.length - visibleItems.length} remaining)
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {ContextMenuComponent}
     </div>
   );

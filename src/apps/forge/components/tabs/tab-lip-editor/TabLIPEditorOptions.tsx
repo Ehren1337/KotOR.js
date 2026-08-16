@@ -7,7 +7,7 @@ import {
   LIP_EDITOR_DEFAULT_HEAD,
 } from "@/apps/forge/states/tabs";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
-import { Button, Form } from "react-bootstrap";
+import { ForgeButton, ForgeInput, ForgeSelect } from "@/apps/forge/components/ui";
 import { SectionContainer } from "@/apps/forge/components/SectionContainer";
 
 import * as KotOR from "@/apps/forge/KotOR";
@@ -144,7 +144,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           <label className="lip-sidebar__label" htmlFor="lip-duration-input">
             Length (s)
           </label>
-          <Form.Control
+          <ForgeInput
             id="lip-duration-input"
             type="number"
             step={0.01}
@@ -160,7 +160,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           />
         </div>
         <div className="lip-sidebar__btn-row">
-          <Button
+          <ForgeButton
             variant="secondary"
             size="sm"
             className="lip-sidebar__btn"
@@ -169,13 +169,13 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           >
             <i className="fa-solid fa-compress-arrows-alt me-1" aria-hidden />
             Fit to Keyframes
-          </Button>
+          </ForgeButton>
         </div>
       </SectionContainer>
 
       {/* ── Phoneme Detection (PHN + Auto) ─────────────────────────── */}
       <SectionContainer name="Phoneme Detection">
-        <Button
+        <ForgeButton
           variant="secondary"
           size="sm"
           className="lip-sidebar__btn"
@@ -184,12 +184,12 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
         >
           <i className="fa-solid fa-file-import me-1" aria-hidden />
           Import PHN
-        </Button>
+        </ForgeButton>
         <p className="lip-sidebar__hint">
           Replaces all keyframes and updates duration from the PHN file.
         </p>
         <div className="lip-sidebar__btn-row">
-          <Button
+          <ForgeButton
             variant="secondary"
             size="sm"
             className="lip-sidebar__btn"
@@ -199,7 +199,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           >
             <i className={`fa-solid ${phonemeBusy ? 'fa-spinner fa-spin' : 'fa-wand-magic-sparkles'} me-1`} aria-hidden />
             {phonemeBusy ? 'Generating...' : 'Generate Phonemes + Shapes'}
-          </Button>
+          </ForgeButton>
         </div>
         {phonemeError && (
           <p className="lip-sidebar__hint text-danger mb-0">{phonemeError}</p>
@@ -219,7 +219,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           </span>
         </div>
         <div className="lip-sidebar__btn-row">
-          <Button
+          <ForgeButton
             variant="secondary"
             size="sm"
             className="lip-sidebar__btn"
@@ -228,7 +228,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           >
             <i className="fa-solid fa-folder-open me-1" aria-hidden />
             {hasAudio ? 'Replace Audio' : 'Load Audio'}
-          </Button>
+          </ForgeButton>
         </div>
       </SectionContainer>
 
@@ -248,7 +248,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
           <label className="lip-sidebar__label" htmlFor="lip-head-select">
             Head
           </label>
-          <Form.Select
+          <ForgeSelect
             id="lip-head-select"
             className="lip-sidebar__select"
             onChange={onPreviewHeadChange}
@@ -261,7 +261,7 @@ export const TabLIPEditorOptions = function (props: TabLIPEditorOptionsProps) {
             ) : (
               <option value={headSelectValue}>{headSelectValue}</option>
             )}
-          </Form.Select>
+          </ForgeSelect>
         </div>
       </SectionContainer>
 

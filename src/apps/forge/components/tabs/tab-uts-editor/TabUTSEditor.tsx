@@ -3,7 +3,7 @@ import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps"
 import { TabUTSEditorState } from "@/apps/forge/states/tabs";
 import * as KotOR from "@/apps/forge/KotOR";
 import "@/apps/forge/components/tabs/tab-uts-editor/tab-uts-editor.scss";
-import { Button, Modal } from "react-bootstrap";
+import { ForgeButton, ForgeDialog } from "@/apps/forge/components/ui";
 import { FileBrowserNode } from "@/apps/forge/FileBrowserNode";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { CExoLocStringEditor } from "@/apps/forge/components/CExoLocStringEditor/CExoLocStringEditor";
@@ -103,18 +103,18 @@ const SoundSelector = function(props: {onSelect: (resRef: string) => void, onClo
   );
 
   return (
-    <Modal 
+    <ForgeDialog 
       show={true} 
       onHide={props.onClose} 
       backdrop="static" 
       keyboard={false}
       size="lg"
     >
-      <Modal.Header closeButton onClick={close}>
-        <Modal.Title>Select Sound</Modal.Title>
-      </Modal.Header>
+      <ForgeDialog.Header closeButton onClick={close}>
+        <ForgeDialog.Title>Select Sound</ForgeDialog.Title>
+      </ForgeDialog.Header>
 
-      <Modal.Body>
+      <ForgeDialog.Body>
         <div className="sound-selector">
           {/* Search input */}
           <div className="mb-3">
@@ -160,10 +160,10 @@ const SoundSelector = function(props: {onSelect: (resRef: string) => void, onClo
             />
           </div>
         </div>
-      </Modal.Body>
+      </ForgeDialog.Body>
 
-      <Modal.Footer>
-        <Button 
+      <ForgeDialog.Footer>
+        <ForgeButton 
           onClick={isPlaying ? stopPreview : previewSound}
           disabled={!soundResRef.trim()}
           className="me-2"
@@ -179,12 +179,12 @@ const SoundSelector = function(props: {onSelect: (resRef: string) => void, onClo
               Preview
             </>
           )}
-        </Button>
-        <Button variant="primary" onClick={select} disabled={!soundResRef.trim()}>
+        </ForgeButton>
+        <ForgeButton variant="primary" onClick={select} disabled={!soundResRef.trim()}>
           Select
-        </Button>
-      </Modal.Footer>
-    </Modal>
+        </ForgeButton>
+      </ForgeDialog.Footer>
+    </ForgeDialog>
   )
 }
 
@@ -357,10 +357,10 @@ export const TabUTSEditor = function(props: BaseTabProps){
   return <>
 <div style={{height: '100%'}}>
   <div className="vertical-tabs" style={{height: '100%'}}>
-    <div className="vertical-tabs-nav navbar navbar-sidebar-wizard-horizontal" role="navigation">
+    <div className="vertical-tabs-nav" role="navigation">
       <ul className="tabs-menu" style={{textAlign: 'center'}}>
-        <li className={`btn btn-tab ${selectedTab == 'basic' ? 'active' : ''}`}><a onClick={ () => setSelectedTab('basic') }>Basic</a></li>
-        <li className={`btn btn-tab ${selectedTab == 'position' ? 'active' : ''}`}><a onClick={ () => setSelectedTab('position') }>Position</a></li>
+        <li className={`forge-tab ${selectedTab == 'basic' ? 'active' : ''}`}><a onClick={ () => setSelectedTab('basic') }>Basic</a></li>
+        <li className={`forge-tab ${selectedTab == 'position' ? 'active' : ''}`}><a onClick={ () => setSelectedTab('position') }>Position</a></li>
       </ul>
     </div>
     <div className="vertical-tabs-container">
@@ -373,9 +373,9 @@ export const TabUTSEditor = function(props: BaseTabProps){
               <tr>
                 <td><label>Emitter</label></td>
                 <td>
-                  <div className="btn-group mb-2">
-                    <button className="btn btn-primary" onClick={() => tab.startEmitter()}>Start</button>
-                    <button className="btn btn-primary" onClick={() => tab.stopEmitter()}>Stop</button>
+                  <div className="forge-btn-group">
+                    <button className="forge-btn forge-btn--primary" onClick={() => tab.startEmitter()}>Start</button>
+                    <button className="forge-btn forge-btn--primary" onClick={() => tab.stopEmitter()}>Stop</button>
                   </div>
                 </td>
               </tr>
@@ -409,8 +409,8 @@ export const TabUTSEditor = function(props: BaseTabProps){
                   <label>Sounds</label>
                 </td>
                 <td>
-                  <div className="btn-group mb-2">
-                    <button className="btn btn-primary" onClick={(e) => setShowSoundSelector(true)}><i className="fa-solid fa-plus"></i> Add Sound</button>
+                  <div className="forge-btn-group">
+                    <button className="forge-btn forge-btn--primary" onClick={(e) => setShowSoundSelector(true)}><i className="fa-solid fa-plus"></i> Add Sound</button>
                   </div>
                   {showSoundSelector && (
                     <div className="sound-selector">
@@ -422,11 +422,11 @@ export const TabUTSEditor = function(props: BaseTabProps){
                       <div className="sound-item" key={`sound-item-${index}-${sound}`}>
                         <label>{sound}</label>
                         <div className="sound-item-buttons">
-                          <button className="btn btn-primary" onClick={(e) => onBtnPlaySound(e, index)} title="Play Sound"><i className="fa-solid fa-play"></i></button>
-                          <button className="btn btn-primary" onClick={(e) => onBtnStopSound(e, index)} title="Stop Sound"><i className="fa-solid fa-stop"></i></button>
-                          <button className="btn btn-primary" onClick={(e) => onBtnMoveUpSound(e, index)} title="Move Up"><i className="fa-solid fa-up-long"></i></button>
-                          <button className="btn btn-primary" onClick={(e) => onBtnMoveDownSound(e, index)} title="Move Down"><i className="fa-solid fa-down-long"></i></button>
-                          <button className="btn btn-primary" onClick={(e) => onBtnRemoveSound(e, index)} title="Remove Sound"><i className="fa-solid fa-xmark"></i></button>
+                          <button className="forge-btn forge-btn--primary" onClick={(e) => onBtnPlaySound(e, index)} title="Play Sound"><i className="fa-solid fa-play"></i></button>
+                          <button className="forge-btn forge-btn--primary" onClick={(e) => onBtnStopSound(e, index)} title="Stop Sound"><i className="fa-solid fa-stop"></i></button>
+                          <button className="forge-btn forge-btn--primary" onClick={(e) => onBtnMoveUpSound(e, index)} title="Move Up"><i className="fa-solid fa-up-long"></i></button>
+                          <button className="forge-btn forge-btn--primary" onClick={(e) => onBtnMoveDownSound(e, index)} title="Move Down"><i className="fa-solid fa-down-long"></i></button>
+                          <button className="forge-btn forge-btn--primary" onClick={(e) => onBtnRemoveSound(e, index)} title="Remove Sound"><i className="fa-solid fa-xmark"></i></button>
                         </div>
                       </div>
                     ))}
@@ -438,7 +438,7 @@ export const TabUTSEditor = function(props: BaseTabProps){
                   <label>Volume</label>
                 </td>
                 <td>
-                  <div className="d-flex">
+                  <div className="flex-horizontal">
                     <label className="form-label pr-2" style={{width: '100px'}}>{volume}</label>
                     <input type="range" min="0" max="127" step="1" value={volume} onChange={(e) => { setVolume(Number(e.target.value)); tab.sound.volume = Number(e.target.value); tab.updateFile(); }} title={volume.toString()} />
                   </div>
@@ -449,7 +449,7 @@ export const TabUTSEditor = function(props: BaseTabProps){
                   <label>Volume Variation</label>
                 </td>
                 <td>
-                  <div className="d-flex">
+                  <div className="flex-horizontal">
                     <label className="form-label pr-2" style={{width: '100px'}}>{volumeVariation}</label>
                     <input type="range" min="0" max="127" step="1" value={volumeVariation} onChange={(e) => { setVolumeVariation(Number(e.target.value)); tab.sound.volumeVariation = Number(e.target.value); tab.updateFile(); }} title={volumeVariation.toString()} />
                   </div>
@@ -460,7 +460,7 @@ export const TabUTSEditor = function(props: BaseTabProps){
                   <label>Pitch Variation</label>
                 </td>
                 <td>
-                  <div className="d-flex">
+                  <div className="flex-horizontal">
                     <label className="form-label pr-2" style={{width: '100px'}}>{pitchVariation.toFixed(2)}</label>
                     <input type="range" min="0" max="1" step="0.01" value={pitchVariation} onChange={(e) => { setPitchVariation(Number(e.target.value)); tab.sound.pitchVariation = Number(e.target.value); tab.updateFile(); }} title={pitchVariation.toFixed(2)} />
                   </div>
@@ -469,7 +469,7 @@ export const TabUTSEditor = function(props: BaseTabProps){
               <tr>
                 <td><label>Interval</label></td>
                 <td>
-                  <div className="d-flex">
+                  <div className="flex-horizontal">
                     <label className="form-label pr-2" style={{width: '100px'}}>{interval}</label>
                     <input type="number" min="0" step="0.01" value={interval} onChange={onUpdateNumberField(setInterval, 'interval')} title={interval.toString()} />
                   </div>
@@ -478,7 +478,7 @@ export const TabUTSEditor = function(props: BaseTabProps){
               <tr>
                 <td><label>Interval Variation</label></td>
                 <td>
-                  <div className="d-flex">
+                  <div className="flex-horizontal">
                     <label className="form-label pr-2" style={{width: '100px'}}>{intervalVariation}</label>
                     <input type="number" min="0" step="0.01" value={intervalVariation} onChange={onUpdateNumberField(setIntervalVariation, 'intervalVariation')} title={intervalVariation.toString()} />
                   </div>
@@ -487,18 +487,18 @@ export const TabUTSEditor = function(props: BaseTabProps){
               <tr>
                 <td><label>Play Style</label></td>
                 <td>
-                  <div className="btn-group mb-2">
-                    <button className={`btn ${!looping ? 'btn-primary active' : 'btn-default'}`} onClick={() => { onUpdateLooping(false); }}>Single Shot</button>
-                    <button className={`btn ${looping ? 'btn-primary active' : 'btn-default'}`} onClick={() => { onUpdateLooping(true); }}>Looping</button>
+                  <div className="forge-btn-group">
+                    <button className={`forge-btn ${!looping ? 'forge-btn--primary is-active' : ''}`} onClick={() => { onUpdateLooping(false); }}>Single Shot</button>
+                    <button className={`forge-btn ${looping ? 'forge-btn--primary is-active' : ''}`} onClick={() => { onUpdateLooping(true); }}>Looping</button>
                   </div>
                 </td>
               </tr>
               <tr>
                 <td><label>Play Order</label></td>
                 <td>
-                  <div className="btn-group mb-2">
-                    <button className={`btn ${!random ? 'btn-primary active' : 'btn-default'}`} onClick={() => { tab.sound.random = false; setRandom(tab.sound.random); tab.updateFile(); }}>Sequential</button>
-                    <button className={`btn ${random ? 'btn-primary active' : 'btn-default'}`} onClick={() => { tab.sound.random = true; setRandom(tab.sound.random); tab.updateFile(); }}>Random</button>
+                  <div className="forge-btn-group">
+                    <button className={`forge-btn ${!random ? 'forge-btn--primary is-active' : ''}`} onClick={() => { tab.sound.random = false; setRandom(tab.sound.random); tab.updateFile(); }}>Sequential</button>
+                    <button className={`forge-btn ${random ? 'forge-btn--primary is-active' : ''}`} onClick={() => { tab.sound.random = true; setRandom(tab.sound.random); tab.updateFile(); }}>Random</button>
                   </div>
                 </td>
               </tr>
@@ -514,10 +514,10 @@ export const TabUTSEditor = function(props: BaseTabProps){
                 <td></td>
                 <td style={{textAlign: 'center'}}>
                   {/* position typebutton group */}
-                  <div className="btn-group align-center mb-2">
-                    <button className={`btn ${positional == false ? 'btn-primary active' : 'btn-default'}`} onClick={() => toggleSoundType('global')}>Area-Wide</button>
-                    <button className={`btn ${positional == true ? 'btn-primary active' : 'btn-default'}`} onClick={() => toggleSoundType('positional')}>Positional</button>
-                    <button className={`btn ${randomPosition == true ? 'btn-primary active' : 'btn-default'}`} onClick={() => toggleSoundType('randomPosition')}>Random Position</button>
+                  <div className="forge-btn-group">
+                    <button className={`forge-btn ${positional == false ? 'forge-btn--primary is-active' : ''}`} onClick={() => toggleSoundType('global')}>Area-Wide</button>
+                    <button className={`forge-btn ${positional == true ? 'forge-btn--primary is-active' : ''}`} onClick={() => toggleSoundType('positional')}>Positional</button>
+                    <button className={`forge-btn ${randomPosition == true ? 'forge-btn--primary is-active' : ''}`} onClick={() => toggleSoundType('randomPosition')}>Random Position</button>
                   </div>
                 </td>
               </tr>

@@ -6,17 +6,9 @@ import BaseTabStateOptions from "@/apps/forge/interfaces/BaseTabStateOptions";
 import { TabUTIEditor } from "@/apps/forge/components/tabs/tab-uti-editor/TabUTIEditor";
 import { UI3DRenderer } from "@/apps/forge/UI3DRenderer";
 import * as THREE from "three";
-import { ForgeItem } from "@/apps/forge/module-editor/ForgeItem";
+import { ForgeItem, ItemPropertyEntry } from "@/apps/forge/module-editor/ForgeItem";
 
-export interface ItemPropertyEntry {
-  chanceAppear: number;
-  costTable: number;
-  costValue: number;
-  param1: number;
-  param1Value: number;
-  propertyName: number;
-  subtype: number;
-}
+export type { ItemPropertyEntry };
 
 export class TabUTIEditorState extends TabState {
   tabName: string = `UTI`;
@@ -71,7 +63,7 @@ export class TabUTIEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( async (response) => {
-          this.item = new ForgeItem(response.buffer);
+          this.item = new ForgeItem(response.buffer, file.resref);
           this.item.setContext(this.ui3DRenderer);
           await this.item.load();
           this.ui3DRenderer.attachObject(this.item.container, false);

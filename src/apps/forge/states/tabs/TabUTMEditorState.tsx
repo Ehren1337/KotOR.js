@@ -49,7 +49,7 @@ export class TabUTMEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( (response) => {
-          this.store = new ForgeStore(response.buffer);
+          this.store = new ForgeStore(response.buffer, file.resref);
           this.processEventListener('onEditorFileLoad', [this]);
           resolve(this.blueprint);
         });

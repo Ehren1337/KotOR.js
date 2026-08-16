@@ -3,7 +3,7 @@ import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabTLKEditorState } from "@/apps/forge/states/tabs/TabTLKEditorState";
 import { MenuBar, MenuItem } from "@/apps/forge/components/common/MenuBar";
-import { Button, Spinner } from "react-bootstrap";
+import { ForgeButton, ForgeSpinner } from "@/apps/forge/components/ui";
 import * as KotOR from "@/apps/forge/KotOR";
 import { TLKSearchResult } from "@/managers/TLKManager";
 import { TLKStringUpdate } from "@/resource/TLKObject";
@@ -536,7 +536,7 @@ export const TabTLKEditor = function (props: BaseTabProps) {
               />
               {(isSearching || isQueryPending) && trimmedQuery && (
                 <span className="tab-tlk-editor__search-spinner" aria-hidden="true">
-                  <Spinner animation="border" size="sm" />
+                  <ForgeSpinner animation="border" size="sm" />
                 </span>
               )}
               {searchQuery.length > 0 && (
@@ -576,7 +576,7 @@ export const TabTLKEditor = function (props: BaseTabProps) {
 
             {tlkObject && (isSearching || isQueryPending) && trimmedQuery && (
               <div className="tab-tlk-editor__empty tab-tlk-editor__empty--pending">
-                <Spinner animation="border" size="sm" />
+                <ForgeSpinner animation="border" size="sm" />
                 <p>Searching…</p>
               </div>
             )}
@@ -624,30 +624,30 @@ export const TabTLKEditor = function (props: BaseTabProps) {
 
         <div className="tab-tlk-editor__detail-pane">
           <div className="tab-tlk-editor__detail-actions">
-            <Button
+            <ForgeButton
               size="sm"
               variant="outline-secondary"
               onClick={() => onAddString()}
               disabled={!tlkObject}
             >
               Add String
-            </Button>
-            <Button
+            </ForgeButton>
+            <ForgeButton
               size="sm"
               variant="outline-secondary"
               onClick={() => onAddString(selectedIndex)}
               disabled={!tlkObject || selectedIndex < 0}
             >
               Insert After
-            </Button>
-            <Button
+            </ForgeButton>
+            <ForgeButton
               size="sm"
               variant="outline-danger"
               onClick={() => onDeleteString()}
               disabled={!tlkObject || selectedIndex < 0}
             >
               Delete
-            </Button>
+            </ForgeButton>
           </div>
 
           {!selectedString ? (
@@ -682,7 +682,7 @@ export const TabTLKEditor = function (props: BaseTabProps) {
                   onBlur={onAfterEdit}
                 />
                 <div className="tab-tlk-editor__preview-row">
-                  <Button
+                  <ForgeButton
                     size="sm"
                     variant="outline-secondary"
                     onClick={() => void togglePreview()}
@@ -690,14 +690,14 @@ export const TabTLKEditor = function (props: BaseTabProps) {
                   >
                     {previewLoading ? (
                       <>
-                        <Spinner animation="border" size="sm" /> Loading...
+                        <ForgeSpinner animation="border" size="sm" /> Loading...
                       </>
                     ) : previewPlaying ? (
                       "Stop"
                     ) : (
                       "Play preview"
                     )}
-                  </Button>
+                  </ForgeButton>
                   {previewError && (
                     <span className="tab-tlk-editor__preview-error">{previewError}</span>
                   )}

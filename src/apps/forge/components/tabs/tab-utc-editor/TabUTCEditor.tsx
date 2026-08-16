@@ -8,68 +8,16 @@ import * as KotOR from "@/apps/forge/KotOR";
 import { CExoLocStringEditor } from "@/apps/forge/components/CExoLocStringEditor";
 import { ForgeCheckbox } from "@/apps/forge/components/forge-checkbox/forge-checkbox";
 import { TextureCanvas } from "@/apps/forge/components/TextureCanvas/TextureCanvas";
-import { ModalItemBrowserState } from "@/apps/forge/states/modal/ModalItemBrowserState";
-import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { InfoBubble } from "@/apps/forge/components/info-bubble/info-bubble";
 import { faArrowRight } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { UtcEquipmentTab } from "@/apps/forge/components/tabs/tab-utc-editor/UtcEquipmentTab";
+import { ScriptResRefInput } from "@/apps/forge/components/script-resref-input/ScriptResRefInput";
 import "@/apps/forge/components/tabs/tab-utc-editor/TabUTCEditor.scss";
 
 export const TabUTCEditor = function(props: BaseTabProps){
 
   const tab: TabUTCEditorState = props.tab as TabUTCEditorState;
-
-  const handleItemSlotClick = (slotType: KotOR.ModuleCreatureArmorSlot) => {
-    const modal = new ModalItemBrowserState((item) => {
-      switch(slotType){
-        case KotOR.ModuleCreatureArmorSlot.HEAD:
-          tab.creature.setProperty('slotHead', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.ARMOR:
-          tab.creature.setProperty('slotArmor', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.LEFTHAND:
-          tab.creature.setProperty('slotLeftHand', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.RIGHTHAND:
-          tab.creature.setProperty('slotRightHand', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.BELT:
-          tab.creature.setProperty('slotBelt', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.IMPLANT:
-          tab.creature.setProperty('slotImplant', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.LEFTARMBAND:
-          tab.creature.setProperty('slotLeftArmband', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.RIGHTARMBAND:
-          tab.creature.setProperty('slotRightArmband', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.HIDE:
-          tab.creature.setProperty('slotHide', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.CLAW1:
-          tab.creature.setProperty('slotClaw1', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.CLAW2:
-          tab.creature.setProperty('slotClaw2', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.CLAW3:
-          tab.creature.setProperty('slotClaw3', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.RIGHTHAND2:
-          tab.creature.setProperty('slotRightHand2', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.LEFTHAND2:
-          tab.creature.setProperty('slotLeftHand2', item.resref);
-          break;
-      }
-      tab.updateFile();
-    });
-    modal.attachToModalManager(ForgeState.modalManager);
-    modal.open();
-  };
   const [appearanceType, setAppearanceType] = useState<number>(0);
   const [bodyBag, setBodyBag] = useState<number>(0);
   const [bodyVariation, setBodyVariation] = useState<number>(0);
@@ -559,7 +507,7 @@ export const TabUTCEditor = function(props: BaseTabProps){
 
           <fieldset>
             <legend>Portrait</legend>
-            <div className="d-flex">
+            <div className="flex-horizontal">
               <div className="flex-grow-1">
                 <TextureCanvas texture={portrait.baseresref || ''} width={64} height={64} />
               </div>
@@ -1081,59 +1029,59 @@ export const TabUTCEditor = function(props: BaseTabProps){
             <tbody>
               <tr>
                 <td><label>Attacked</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptAttacked} onChange={onUpdateResRefField(setScriptAttacked, 'scriptAttacked')} /></td>
+                <td><ScriptResRefInput value={scriptAttacked} onChange={onUpdateResRefField(setScriptAttacked, 'scriptAttacked')} /></td>
               </tr>
               <tr>
                 <td><label>Damaged</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptDamaged} onChange={onUpdateResRefField(setScriptDamaged, 'scriptDamaged')} /></td>
+                <td><ScriptResRefInput value={scriptDamaged} onChange={onUpdateResRefField(setScriptDamaged, 'scriptDamaged')} /></td>
               </tr>
               <tr>
                 <td><label>Death</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptDeath} onChange={onUpdateResRefField(setScriptDeath, 'scriptDeath')} /></td>
+                <td><ScriptResRefInput value={scriptDeath} onChange={onUpdateResRefField(setScriptDeath, 'scriptDeath')} /></td>
               </tr>
               <tr>
                 <td><label>Dialogue</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptDialogu} onChange={onUpdateResRefField(setScriptDialogu, 'scriptDialogu')} /></td>
+                <td><ScriptResRefInput value={scriptDialogu} onChange={onUpdateResRefField(setScriptDialogu, 'scriptDialogu')} /></td>
               </tr>
               <tr>
                 <td><label>Disturbed</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptDisturbed} onChange={onUpdateResRefField(setScriptDisturbed, 'scriptDisturbed')} /></td>
+                <td><ScriptResRefInput value={scriptDisturbed} onChange={onUpdateResRefField(setScriptDisturbed, 'scriptDisturbed')} /></td>
               </tr>
               <tr>
                 <td><label>End Dialogue</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptEndDialogue} onChange={onUpdateResRefField(setScriptEndDialogue, 'scriptEndDialogue')} /></td>
+                <td><ScriptResRefInput value={scriptEndDialogue} onChange={onUpdateResRefField(setScriptEndDialogue, 'scriptEndDialogue')} /></td>
               </tr>
               <tr>
                 <td><label>End Round</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptEndRound} onChange={onUpdateResRefField(setScriptEndRound, 'scriptEndRound')} /></td>
+                <td><ScriptResRefInput value={scriptEndRound} onChange={onUpdateResRefField(setScriptEndRound, 'scriptEndRound')} /></td>
               </tr>
               <tr>
                 <td><label>Heartbeat</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptHeartbeat} onChange={onUpdateResRefField(setScriptHeartbeat, 'scriptHeartbeat')} /></td>
+                <td><ScriptResRefInput value={scriptHeartbeat} onChange={onUpdateResRefField(setScriptHeartbeat, 'scriptHeartbeat')} /></td>
               </tr>
               <tr>
                 <td><label>On Blocked</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptOnBlocked} onChange={onUpdateResRefField(setScriptOnBlocked, 'scriptOnBlocked')} /></td>
+                <td><ScriptResRefInput value={scriptOnBlocked} onChange={onUpdateResRefField(setScriptOnBlocked, 'scriptOnBlocked')} /></td>
               </tr>
               <tr>
                 <td><label>On Notice</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptOnNotice} onChange={onUpdateResRefField(setScriptOnNotice, 'scriptOnNotice')} /></td>
+                <td><ScriptResRefInput value={scriptOnNotice} onChange={onUpdateResRefField(setScriptOnNotice, 'scriptOnNotice')} /></td>
               </tr>
               <tr>
                 <td><label>Rested</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptRested} onChange={onUpdateResRefField(setScriptRested, 'scriptRested')} /></td>
+                <td><ScriptResRefInput value={scriptRested} onChange={onUpdateResRefField(setScriptRested, 'scriptRested')} /></td>
               </tr>
               <tr>
                 <td><label>Spawn</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptSpawn} onChange={onUpdateResRefField(setScriptSpawn, 'scriptSpawn')} /></td>
+                <td><ScriptResRefInput value={scriptSpawn} onChange={onUpdateResRefField(setScriptSpawn, 'scriptSpawn')} /></td>
               </tr>
               <tr>
                 <td><label>Spell At</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptSpellAt} onChange={onUpdateResRefField(setScriptSpellAt, 'scriptSpellAt')} /></td>
+                <td><ScriptResRefInput value={scriptSpellAt} onChange={onUpdateResRefField(setScriptSpellAt, 'scriptSpellAt')} /></td>
               </tr>
               <tr>
                 <td><label>User Define</label></td>
-                <td><input type="text" placeholder="Script ResRef" value={scriptUserDefined} onChange={onUpdateResRefField(setScriptUserDefined, 'scriptUserDefined')} /></td>
+                <td><ScriptResRefInput value={scriptUserDefined} onChange={onUpdateResRefField(setScriptUserDefined, 'scriptUserDefined')} /></td>
               </tr>
             </tbody>
           </table>
@@ -1141,24 +1089,12 @@ export const TabUTCEditor = function(props: BaseTabProps){
       )
     },
     {
-      id: 'inventory',
-      label: 'Inventory',
+      id: 'equipment',
+      label: 'Equipment',
       headerIcon: 'fa-suitcase',
-      headerTitle: 'Inventory',
+      headerTitle: 'Equipment',
       content: (
-        <>
-          <div className="iSlots">
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idimplant' : 'iimplant'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.IMPLANT)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idhead' : 'ihead'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.HEAD)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idhands' : 'ihands'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.ARMS)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idforearm_l' : 'iforearm_l'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.LEFTARMBAND)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idarmor' : 'iarmor'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.ARMOR)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idforearm_r' : 'iforearm_r'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.RIGHTARMBAND)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idweap_l' : 'ihand_l'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.LEFTHAND)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idbelt' : 'ibelt'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.BELT)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idweap_r' : 'ihand_r'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.RIGHTHAND)} />
-          </div>
-        </>
+        <UtcEquipmentTab tab={tab} race={race} />
       )
     },
     {

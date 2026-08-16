@@ -13,7 +13,7 @@ import { pathParse } from "@/apps/forge/helpers/PathParse";
 declare const dialog: any;
 
 export type TabStateEventListenerTypes =
-  'onTabDestroyed'|'onTabRemoved'|'onTabShow'|'onTabHide'|'onTabNameChange'|'onEditorFileLoad'|'onEditorFileChange'|'onEditorFileSaved'|'onKeyDown'|'onKeyUp'|'onUndoApplied'|'onRedoApplied';
+  'onTabDestroyed'|'onTabRemoved'|'onTabShow'|'onTabHide'|'onTabNameChange'|'onEditorFileLoad'|'onEditorFileChange'|'onEditorFileSaved'|'onKeyDown'|'onKeyUp'|'onUndoApplied'|'onRedoApplied'|'onHistoryChanged'|'onCompile'|'onDiffModeChanged'|'onRevealNss'|'onRevealNcs';
 
 export interface TabStateEventListeners {
   onTabDestroyed: Function[],
@@ -28,6 +28,7 @@ export interface TabStateEventListeners {
   onKeyUp: Function[],
   onUndoApplied: Function[],
   onRedoApplied: Function[],
+  onHistoryChanged: Function[],
 }
 
 export class TabState extends EventListenerModel {
@@ -69,6 +70,7 @@ export class TabState extends EventListenerModel {
     if (state === undefined) return;
     this.undoStack.push(state);
     this.redoStack = [];
+    this.processEventListener('onHistoryChanged', []);
   }
 
   /** Return the current state as a snapshot. Override in subclasses. */
@@ -92,6 +94,7 @@ export class TabState extends EventListenerModel {
     this.applyUndoState(snapshot);
     this.suppressUndoCapture = false;
     this.processEventListener('onUndoApplied', [snapshot]);
+    this.processEventListener('onHistoryChanged', []);
   }
 
   redo(): void {
@@ -105,11 +108,13 @@ export class TabState extends EventListenerModel {
     this.applyUndoState(snapshot);
     this.suppressUndoCapture = false;
     this.processEventListener('onRedoApplied', [snapshot]);
+    this.processEventListener('onHistoryChanged', []);
   }
 
   clearUndoHistory(): void {
     this.undoStack = [];
     this.redoStack = [];
+    this.processEventListener('onHistoryChanged', []);
   }
 
   /**
@@ -128,6 +133,10 @@ export class TabState extends EventListenerModel {
 
   get canRedo(): boolean {
     return this.redoStack.length > 0;
+  }
+
+  get canCompile(): boolean {
+    return false;
   }
 
   constructor(options: BaseTabStateOptions = {}){
@@ -171,13 +180,6 @@ export class TabState extends EventListenerModel {
     }
     
     this.#_onKeyDown = (e: KeyboardEvent) => {
-      if((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'w'){
-        if(this.isClosable){
-          e.preventDefault();
-          this.remove();
-          return;
-        }
-      }
       if ((e.ctrlKey || e.metaKey) && !e.altKey && this.shouldHandleUndoKeyboard(e)) {
         if (e.key === 'z') {
           e.preventDefault();
@@ -310,6 +312,10 @@ export class TabState extends EventListenerModel {
     }
   }
 
+  getSaveSuggestedName(): string {
+    return this.getFile()?.getFilename() ?? 'untitled';
+  }
+
 
   updateFile(){
     //stub method to be overridden by subclasses
@@ -370,7 +376,7 @@ export class TabState extends EventListenerModel {
               }
             }else{
               let newHandle = await window.showSaveFilePicker({
-                suggestedName: currentFile.getFilename(),
+                suggestedName: this.getSaveSuggestedName(),
                 types: this.saveTypes.length ? this.saveTypes : undefined
               });
               if(newHandle){
@@ -432,7 +438,7 @@ export class TabState extends EventListenerModel {
         if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.ELECTRON){
           const savePath = await dialog.showSaveDialog({
             title: 'Save File As',
-            defaultPath: currentFile.getFilename(),
+            defaultPath: this.getSaveSuggestedName(),
             filters: this.getSaveTypes()
           });
           if(savePath && !savePath.cancelled){
@@ -464,7 +470,7 @@ export class TabState extends EventListenerModel {
           }
         }else if(KotOR.ApplicationProfile.ENV == KotOR.ApplicationEnvironment.BROWSER){
           const newHandle = await window.showSaveFilePicker({
-            suggestedName: currentFile.getFilename(),
+            suggestedName: this.getSaveSuggestedName(),
             types: this.getSaveTypes(),
           });
           if(newHandle){

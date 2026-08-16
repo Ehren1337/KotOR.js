@@ -3,11 +3,12 @@ import { EditorFileOptions } from "@/apps/forge/interfaces/EditorFileOptions";
 import { AudioPlayerState } from "@/apps/forge/states/AudioPlayerState";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { 
-  TabBIKPlayerState, TabERFEditorState, TabGFFEditorState, TabGUIEditorState, TabHexEditorState, TabImageViewerState, TabLIPEditorState, TabLYTEditorState, TabModelViewerState, TabPTHEditorState, TabSSFEditorState, TabTextEditorState, TabTLKEditorState, TabTwoDAEditorState, TabUTCEditorState, 
+  TabBIKPlayerState, TabDLGEditorState, TabERFEditorState, TabGFFEditorState, TabGUIEditorState, TabHexEditorState, TabImageViewerState, TabLIPEditorState, TabLYTEditorState, TabModelViewerState, TabPTHEditorState, TabSSFEditorState, TabTextEditorState, TabTLKEditorState, TabTwoDAEditorState, TabUTCEditorState, 
   TabUTDEditorState, TabUTEEditorState, TabUTIEditorState, TabUTMEditorState, TabUTPEditorState, TabUTSEditorState, TabUTTEditorState, TabUTWEditorState, TabWOKEditorState 
 } from "@/apps/forge/states/tabs";
 import { ResourceTypes } from "@/KotOR";
 import { sniffBufferLooksLikeBinary } from "@/apps/forge/helpers/sniffBufferLooksLikeBinary";
+import { DefaultEditorKind, getDefaultEditor } from "@/apps/forge/settings/forgeSettings";
 
 /**
  * FileTypeManager class.
@@ -49,6 +50,39 @@ export class FileTypeManager {
 
     console.log('FileTypeManager.onOpenResource', res, ext);
 
+    const kind = getDefaultEditor(ext);
+    FileTypeManager.openWithEditor(kind, res, ext);
+  }
+
+  /**
+   * Open with a specific editor. Defaults and one-shot Open with… share this factory.
+   * Restored tabs do not go through here.
+   */
+  static openWithEditor(kind: DefaultEditorKind, res: EditorFile, ext?: string): void {
+    const resolvedExt = (
+      ext
+      || ResourceTypes.getKeyByValue(res.reskey)
+      || (typeof res.ext === 'string' ? res.ext : '')
+      || 'NA'
+    ).toLowerCase();
+
+    if(kind === 'gff'){
+      ForgeState.tabManager.addTab(new TabGFFEditorState({editorFile: res}));
+      return;
+    }
+    if(kind === 'hex'){
+      ForgeState.tabManager.addTab(new TabHexEditorState({editorFile: res}));
+      return;
+    }
+    if(kind === 'text'){
+      ForgeState.tabManager.addTab(new TabTextEditorState({editorFile: res}));
+      return;
+    }
+
+    FileTypeManager.openNativeEditor(resolvedExt, res);
+  }
+
+  static openNativeEditor(ext: string, res: EditorFile): void {
     switch(ext){
       case 'lyt':
         ForgeState.tabManager.addTab(new TabLYTEditorState({editorFile: res}));
@@ -68,6 +102,8 @@ export class FileTypeManager {
         ForgeState.tabManager.addTab(new TabTLKEditorState({editorFile: res}));
       break;
       case 'dlg':
+        ForgeState.tabManager.addTab(new TabDLGEditorState({editorFile: res}));
+      break;
       case 'bic':
       case 'jrl':
       case 'ifo':
@@ -152,7 +188,6 @@ export class FileTypeManager {
         void FileTypeManager.openUnknownExtensionWithSniff(res);
       break;
     }
-
   }
 
   /** Unknown extension: sniff bytes; binary → hex tab, else text editor. */

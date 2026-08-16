@@ -1,0 +1,151 @@
+.forge-titlebar {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: var(--forge-titlebar-height);
+  min-height: var(--forge-titlebar-height);
+  background: var(--forge-bg);
+  border-bottom: 1px solid var(--forge-border);
+  user-select: none;
+  color: var(--forge-text);
+
+  &--electron {
+    -webkit-app-region: drag;
+  }
+
+  &__menus {
+    display: flex;
+    align-items: stretch;
+    min-width: 0;
+    z-index: 1;
+    -webkit-app-region: no-drag;
+
+    .forge-menubar {
+      height: 100%;
+      min-height: 100%;
+      background: transparent;
+      border-bottom: none;
+    }
+  }
+
+  &__controls {
+    display: flex;
+    margin-left: auto;
+    flex: none;
+    z-index: 2;
+    -webkit-app-region: no-drag;
+
+    &--mac {
+      margin-left: 0;
+      margin-right: 4px;
+      padding: 0 8px;
+      align-items: center;
+    }
+  }
+
+  &__btn {
+    width: 46px;
+    height: 100%;
+    border: none;
+    background: transparent;
+    color: var(--forge-text);
+    cursor: pointer;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-app-region: no-drag;
+
+    i {
+      pointer-events: none;
+    }
+
+    &:hover {
+      background: var(--forge-bg-hover);
+    }
+
+    &--close:hover {
+      background: #c42b1c;
+      color: #fff;
+    }
+
+    &--fullscreen {
+      font-size: 11px;
+    }
+  }
+
+  &--mac &__btn {
+    width: 12px;
+    height: 12px;
+    margin: 0 4px;
+    border-radius: 50%;
+    background: #555;
+
+    &:hover { background: #777; }
+    &--close { background: #ff5f57; }
+    &--min { background: #febc2e; }
+    &--max { background: #28c840; }
+  }
+
+  &__title {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--forge-font-size);
+    color: var(--forge-text-muted);
+    pointer-events: none;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.forge-statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--forge-statusbar-height);
+  min-height: var(--forge-statusbar-height);
+  padding: 0 8px;
+  background: var(--forge-bg);
+  border-top: 1px solid var(--forge-border);
+  font-size: var(--forge-font-size-sm);
+  color: var(--forge-text-muted);
+  -webkit-app-region: no-drag;
+
+  &__game {
+    color: var(--forge-accent);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  &__tab {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__idle {
+    margin-left: auto;
+  }
+}
+
+.forge-overlay-menubar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  height: var(--forge-menubar-height);
+  background: var(--forge-bg);
+  border-bottom: 1px solid var(--forge-border);
+}

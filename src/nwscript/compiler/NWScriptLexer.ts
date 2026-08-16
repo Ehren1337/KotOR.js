@@ -118,6 +118,25 @@ export class NWScriptLexer {
     }
   }
 
+  /**
+   * Next non-whitespace character without consuming. Used to tell the `vector` type keyword
+   * from the engine constructor `Vector(...)` — the only type/function name collision in
+   * nwscript.nss.
+   */
+  private peekNonWhitespaceChar(): string {
+    let offset = 0;
+    while (true) {
+      const idx = this.i + offset;
+      if (idx < 0 || idx >= this.src.length) return "\0";
+      const ch = this.src[idx];
+      if (ch === " " || ch === "\t" || ch === "\r" || ch === "\n") {
+        offset++;
+        continue;
+      }
+      return ch;
+    }
+  }
+
   next(): Token {
     this.skipWhitespace();
 
@@ -217,6 +236,11 @@ export class NWScriptLexer {
       while (/[A-Za-z0-9_#]/.test(this.peekChar(0))) s += this.nextChar();
 
       const kw = KEYWORDS.get(s) ?? KEYWORDS.get(s.toLowerCase());
+      // `vector Vector(float x, float y, float z)` is both the type and the constructor.
+      // Keep the identifier when a call follows so expression parsing can treat it as a name.
+      if (kw === "VECTOR" && this.peekNonWhitespaceChar() === "(") {
+        return this.makeToken("name", s, startLine, startCol, this.line, this.col);
+      }
       if (kw) return this.makeToken("keyword", kw, startLine, startCol, this.line, this.col);
 
       return this.makeToken("name", s, startLine, startCol, this.line, this.col);

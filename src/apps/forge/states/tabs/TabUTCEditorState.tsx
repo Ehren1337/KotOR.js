@@ -48,7 +48,7 @@ export class TabUTCEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( (response) => {
-          this.creature = new ForgeCreature(response.buffer);
+          this.creature = new ForgeCreature(response.buffer, file.resref);
           this.creature.setContext(this.ui3DRenderer);
           this.creature.load();
           this.ui3DRenderer.attachObject(this.creature.container, false);

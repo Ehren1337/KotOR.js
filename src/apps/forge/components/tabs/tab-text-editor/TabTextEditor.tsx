@@ -8,6 +8,15 @@ import { TabManagerProvider } from "@/apps/forge/context/TabManagerContext";
 import TabManager from "@/apps/forge/components/tabs/TabManager";
 import * as monacoEditor from "monaco-editor/esm/vs/editor/editor.api";
 import { MenuBar, MenuItem } from "@/apps/forge/components/common/MenuBar";
+import { ForgeButton } from "@/apps/forge/components/ui";
+import { NcsInspector } from "@/apps/forge/components/tabs/tab-ncs-inspector/NcsInspector";
+import {
+  getNcsInspectorDrawerOpen,
+  getNcsInspectorDrawerWidth,
+  setNcsInspectorDrawerOpen,
+  setNcsInspectorDrawerWidth,
+} from "@/apps/forge/components/tabs/tab-ncs-inspector/ncsInspectorConfig";
+import { addForgeThemeChangeListener, removeForgeThemeChangeListener } from "@/apps/forge/settings/forgeTheme";
 
 export const TabTextEditor = function(props: any){
   const tab: TabTextEditorState = props.tab;
@@ -16,6 +25,9 @@ export const TabTextEditor = function(props: any){
   // const [height, setHeight] = useState<any>(`100%`);
   const [code, setCode] = useState<string>(tab.code);
   const [isDiffMode, setIsDiffMode] = useState<boolean>(tab.isDiffMode);
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(() => getNcsInspectorDrawerOpen(false));
+  const [inspectorWidth, setInspectorWidth] = useState<number>(() => getNcsInspectorDrawerWidth(440));
+  const [ncsEpoch, setNcsEpoch] = useState(0);
   const [, forceUpdate] = useState({});
   const diffEditorContainerRef = useRef<HTMLDivElement>(null);
 
@@ -68,6 +80,19 @@ export const TabTextEditor = function(props: any){
 
       // Store disposable for cleanup if needed
       (editor as any)._nwscriptCommentDisposable = disposable;
+
+      editor.addAction({
+        id: "nwscript.showInNcs",
+        label: "Show in NCS",
+        keybindings: [monaco.KeyMod.Alt | monaco.KeyCode.KeyN],
+        contextMenuGroupId: "navigation",
+        run: (ed) => {
+          const line = ed.getPosition()?.lineNumber;
+          if (line) {
+            tab.revealNcsForLine(line);
+          }
+        },
+      });
     }
   };
   
@@ -83,6 +108,21 @@ export const TabTextEditor = function(props: any){
         tab.editor.setSelection(new tab.monaco.Selection(1, 1, 1, 1));
       }, 0);
     }
+  };
+
+  const onRevealNss = (line: number) => {
+    setTimeout(() => {
+      if (tab.editor) {
+        tab.editor.revealLineInCenter(line);
+        tab.editor.setPosition({ lineNumber: line, column: 1 });
+        tab.editor.focus();
+      }
+    }, 0);
+  };
+
+  const onCompileOrNcsChange = () => {
+    setCode(tab.code);
+    setNcsEpoch((value) => value + 1);
   };
 
   const onDiffModeChanged = () => {
@@ -135,6 +175,8 @@ export const TabTextEditor = function(props: any){
   useEffectOnce( () => {
     tab.addEventListener('onEditorFileLoad', onEditorFileLoad);
     tab.addEventListener('onDiffModeChanged', onDiffModeChanged);
+    tab.addEventListener('onRevealNss', onRevealNss);
+    tab.addEventListener('onCompile', onCompileOrNcsChange);
     
     // Create diff editor if already in diff mode
     if(tab.isDiffMode && tab.monaco) {
@@ -143,9 +185,20 @@ export const TabTextEditor = function(props: any){
       }, 100);
     }
     
+    const onThemeChange = () => {
+      if (tab.monaco) {
+        tab.monaco.editor.setTheme(tab.getTheme());
+      }
+      forceUpdate({});
+    };
+    addForgeThemeChangeListener(onThemeChange);
+
     return () => {
+      removeForgeThemeChangeListener(onThemeChange);
       tab.removeEventListener('onEditorFileLoad', onEditorFileLoad);
       tab.removeEventListener('onDiffModeChanged', onDiffModeChanged);
+      tab.removeEventListener('onRevealNss', onRevealNss);
+      tab.removeEventListener('onCompile', onCompileOrNcsChange);
       if(tab.diffEditor) {
         tab.diffEditor.dispose();
       }
@@ -167,29 +220,9 @@ export const TabTextEditor = function(props: any){
   }, [tab.tabSize]);
 
   // Handle keyboard shortcuts using TabState's keybinding system
-  const onKeyDown = (event: KeyboardEvent, tabState: TabTextEditorState) => {
+  const onKeyDown = (event: KeyboardEvent) => {
     const isCtrlOrCmd = event.ctrlKey || event.metaKey;
-    
-    // Ctrl+S / Cmd+S - Save
-    if (isCtrlOrCmd && event.key === 's' && !event.shiftKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      tab.save();
-    }
-    // Ctrl+Shift+S / Cmd+Shift+S - Save As
-    else if (isCtrlOrCmd && event.key === 's' && event.shiftKey) {
-      event.preventDefault();
-      event.stopPropagation();
-      tab.saveAs();
-    }
-    // Ctrl+B / Cmd+B - Compile
-    else if (isCtrlOrCmd && event.key === 'b') {
-      event.preventDefault();
-      event.stopPropagation();
-      tab.compile();
-    }
-    // Ctrl+Shift+F / Cmd+Shift+F - Format Document
-    else if (isCtrlOrCmd && event.key === 'f' && event.shiftKey) {
+    if (isCtrlOrCmd && event.key === 'f' && event.shiftKey) {
       event.preventDefault();
       event.stopPropagation();
       if(tab.editor && tab.monaco) {
@@ -259,6 +292,14 @@ export const TabTextEditor = function(props: any){
             }
           }
         },
+        ...(tab.isNcsFile() ? [{
+          label: inspectorOpen ? 'Hide NCS Inspector' : 'Inspect NCS',
+          onClick: () => {
+            const next = !inspectorOpen;
+            setInspectorOpen(next);
+            setNcsInspectorDrawerOpen(next);
+          }
+        }] : []),
         {
           separator: true
         },
@@ -347,45 +388,96 @@ export const TabTextEditor = function(props: any){
     }
   ];
 
+  const monacoPane = isDiffMode ? (
+    <div ref={diffEditorContainerRef} style={{ width: '100%', height: '100%' }}></div>
+  ) : (
+    <MonacoEditor
+      width="100%"
+      height="100%"
+      language={tab.getLanguageId()}
+      theme={tab.getTheme()}
+      value={code}
+      options={options}
+      onChange={onChange}
+      editorDidMount={editorDidMount}
+    />
+  );
+
+  const inspectorPane = (
+    <NcsInspector
+      key={`${ncsEpoch}-${tab.ncs?.length || 0}`}
+      bytes={tab.ncs || new Uint8Array(0)}
+      script={tab.nwScript}
+      recoveredFunctions={tab.recoveredFunctions}
+      nssLineMap={tab.nssLineMap}
+      revealCodeOffset={tab.revealNcsCodeOffset}
+      fileName={tab.file?.getFilename?.()}
+      editorFile={tab.file}
+      onClose={() => {
+        setInspectorOpen(false);
+        setNcsInspectorDrawerOpen(false);
+      }}
+      onShowInNss={(line) => tab.revealNssLine(line)}
+    />
+  );
+
   const southContent = (
     <TabManagerProvider manager={tab.getSouthTabManager()}>
       <TabManager></TabManager>
     </TabManagerProvider>
   );
 
+  const center = (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <MenuBar items={menuItems} />
+      {tab.isNcsFile() && (
+        <ForgeButton
+          size="sm"
+          variant={inspectorOpen ? "primary" : "secondary"}
+          onClick={() => {
+            const next = !inspectorOpen;
+            setInspectorOpen(next);
+            setNcsInspectorDrawerOpen(next);
+          }}
+          style={{ position: 'absolute', top: 2, right: 6, zIndex: 4, padding: '1px 8px' }}
+        >
+          {inspectorOpen ? 'Close Inspector' : 'Inspect NCS'}
+        </ForgeButton>
+      )}
+      <div style={{
+        position: 'absolute',
+        top: '24px',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100%',
+        height: 'calc(100% - 24px)'
+      }}>
+        {tab.isNcsFile() ? (
+          <LayoutContainerProvider>
+            <LayoutContainer
+              eastContent={inspectorOpen ? inspectorPane : undefined}
+              eastSize={inspectorWidth}
+              onEastSizeChange={(width) => {
+                setInspectorWidth(width);
+                setNcsInspectorDrawerWidth(width);
+              }}
+            >
+              {monacoPane}
+            </LayoutContainer>
+          </LayoutContainerProvider>
+        ) : (
+          monacoPane
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <>
-      <LayoutContainerProvider>
-        <LayoutContainer southContent={southContent}>
-          <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-            <MenuBar items={menuItems} />
-            <div style={{ 
-              position: 'absolute',
-              top: '24px',
-              left: 0,
-              right: 0,
-              bottom: 0,
-              width: '100%',
-              height: 'calc(100% - 24px)'
-            }}>
-              {isDiffMode ? (
-                <div ref={diffEditorContainerRef} style={{ width: '100%', height: '100%' }}></div>
-              ) : (
-                <MonacoEditor
-                  width="100%"
-                  height="100%"
-                  language={tab.getLanguageId()}
-                  theme={tab.getTheme()}
-                  value={code}
-                  options={options}
-                  onChange={onChange}
-                  editorDidMount={editorDidMount}
-                />
-              )}
-            </div>
-          </div>
-        </LayoutContainer>
-      </LayoutContainerProvider>
-    </>
+    <LayoutContainerProvider>
+      <LayoutContainer southContent={southContent}>
+        {center}
+      </LayoutContainer>
+    </LayoutContainerProvider>
   )
 }

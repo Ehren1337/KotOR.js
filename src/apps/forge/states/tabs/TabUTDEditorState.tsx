@@ -49,7 +49,7 @@ export class TabUTDEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( async (response) => {
-          this.door = new ForgeDoor(response.buffer);
+          this.door = new ForgeDoor(response.buffer, file.resref);
           this.door.setContext(this.ui3DRenderer);
           await this.door.load();
           this.ui3DRenderer.attachObject(this.door.container, false);

@@ -37,4 +37,23 @@ export class BIFManager {
     return BIFManager.bifs.get(BIFManager.bifIndexes.get(name));
   }
 
+  static FindByPath(archivePath: string): BIFObject | undefined {
+    if(!archivePath){
+      return undefined;
+    }
+    const normalized = String(archivePath).replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+    const base = (normalized.split('/').pop() || normalized).replace(/\.[^.]+$/, '');
+    const byName = BIFManager.GetBIFByName(base) || BIFManager.GetBIFByName(archivePath);
+    if(byName){
+      return byName;
+    }
+    for(const bif of BIFManager.bifs.values()){
+      const p = String(bif.file || bif.resourceDiskInfo?.path || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+      if(p === normalized || p.endsWith('/' + normalized) || normalized.endsWith('/' + p)){
+        return bif;
+      }
+    }
+    return undefined;
+  }
+
 }

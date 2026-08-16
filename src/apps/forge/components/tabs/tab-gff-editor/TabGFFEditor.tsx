@@ -5,7 +5,7 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { TabGFFEditorState, TabGFFEditorStateEventListenerTypes } from "@/apps/forge/states/tabs";
 
 import * as KotOR from "@/apps/forge/KotOR";
-import { Form, InputGroup } from "react-bootstrap";
+import { ForgeInputGroup, ForgeInput } from "@/apps/forge/components/ui";
 import { ForgeTreeView } from "@/apps/forge/components/treeview/ForgeTreeView";
 import { ListItemNode } from "@/apps/forge/components/treeview/ListItemNode";
 import { useContextMenu } from "@/apps/forge/components/common/ContextMenu";
@@ -50,7 +50,7 @@ export const TabGFFEditor = function(props: BaseTabProps){
       }
     </ForgeTreeView>
   </div>
-  <div id="gffProperties" className="container" style={{position: 'relative', overflow: 'auto', height: '100%', width:'50%', padding:'10px', float: 'left'}}>
+  <div id="gffProperties" className="gff-properties" style={{position: 'relative', overflow: 'auto', height: '100%', width:'50%', padding:'10px', float: 'left'}}>
     {(
       selectedNode ? (
         selectedNode instanceof KotOR.GFFField ? 
@@ -439,9 +439,9 @@ const GFFFieldProperties = function(props: any){
         return (
           <fieldset>
             <legend>[{KotOR.GFFDataType[node.getType()]}] - {node.getLabel()}</legend>
-            <InputGroup>
-              <InputGroup.Text>Value</InputGroup.Text>
-              <Form.Control
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Value</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -449,7 +449,7 @@ const GFFFieldProperties = function(props: any){
                 value={value}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onSimpleValueChange(e) }
               />
-            </InputGroup>
+            </ForgeInputGroup>
           </fieldset>
         );
       break;
@@ -471,9 +471,9 @@ const GFFFieldProperties = function(props: any){
         return (
           <fieldset>
             <legend>[{KotOR.GFFDataType[node.getType()]}]</legend>
-            <InputGroup>
-              <InputGroup.Text>X</InputGroup.Text>
-              <Form.Control
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>X</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -481,10 +481,10 @@ const GFFFieldProperties = function(props: any){
                 value={valueX}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onVectorValueChange(e, 'x') }
               />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Y</InputGroup.Text>
-              <Form.Control
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Y</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -492,10 +492,10 @@ const GFFFieldProperties = function(props: any){
                 value={valueY}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onVectorValueChange(e, 'y') }
               />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Z</InputGroup.Text>
-              <Form.Control
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Z</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -503,7 +503,7 @@ const GFFFieldProperties = function(props: any){
                 value={valueZ}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onVectorValueChange(e, 'z') }
               />
-            </InputGroup>
+            </ForgeInputGroup>
           </fieldset>
         );
       break;
@@ -511,9 +511,9 @@ const GFFFieldProperties = function(props: any){
         return (
           <fieldset>
             <legend>[{KotOR.GFFDataType[node.getType()]}]</legend>
-            <InputGroup>
-              <InputGroup.Text>X</InputGroup.Text>
-              <Form.Control
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>X</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -521,10 +521,10 @@ const GFFFieldProperties = function(props: any){
                 value={valueX}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onOrientationValueChange(e, 'x') }
               />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Y</InputGroup.Text>
-              <Form.Control
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Y</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -532,10 +532,10 @@ const GFFFieldProperties = function(props: any){
                 value={valueY}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onOrientationValueChange(e, 'y') }
               />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Z</InputGroup.Text>
-              <Form.Control
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Z</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -543,10 +543,10 @@ const GFFFieldProperties = function(props: any){
                 value={valueZ}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onOrientationValueChange(e, 'z') }
               />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>W</InputGroup.Text>
-              <Form.Control
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>W</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -554,7 +554,7 @@ const GFFFieldProperties = function(props: any){
                 value={valueW}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => onOrientationValueChange(e, 'w') }
               />
-            </InputGroup>
+            </ForgeInputGroup>
           </fieldset>
         );
       break;
@@ -563,9 +563,9 @@ const GFFFieldProperties = function(props: any){
           <>
           <fieldset>
             <legend>CExoLocString</legend>
-            <InputGroup>
-              <InputGroup.Text>StringRef</InputGroup.Text>
-              <Form.Control
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>StringRef</ForgeInputGroup.Text>
+              <ForgeInput
                 placeholder=""
                 aria-label=""
                 aria-describedby="basic-addon1"
@@ -573,10 +573,10 @@ const GFFFieldProperties = function(props: any){
                 value={valueStrRef}
                 onChange={ (e: ChangeEvent<HTMLInputElement>) => console.log(e) }
               />
-            </InputGroup>
-            <InputGroup>
-              <InputGroup.Text>Text</InputGroup.Text>
-              <Form.Control
+            </ForgeInputGroup>
+            <ForgeInputGroup>
+              <ForgeInputGroup.Text>Text</ForgeInputGroup.Text>
+              <ForgeInput
                 disabled={true}
                 placeholder=""
                 aria-label=""
@@ -585,7 +585,7 @@ const GFFFieldProperties = function(props: any){
                 value={node.getCExoLocString().getValue()}
                 as="textarea" rows={5}
               />
-            </InputGroup>
+            </ForgeInputGroup>
           </fieldset>
           <fieldset>
             <legend>Sub String</legend>

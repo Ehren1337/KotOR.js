@@ -57,11 +57,12 @@ export class ForgeTrigger extends ForgeGameObject {
   vertexHelperSize: number = 0.125;
   selectedVertexIndex: number = -1;
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -127,7 +128,9 @@ export class ForgeTrigger extends ForgeGameObject {
     if(root.hasField('PortraitId')){
       this.portraitId = root.getFieldByLabel('PortraitId').getValue() || 0;
     }
-    if(root.hasField('ScriptOnHeartbeat')){
+    if(root.hasField('ScriptHeartbeat')){
+      this.onHeartbeat = root.getFieldByLabel('ScriptHeartbeat').getValue() || '';
+    }else if(root.hasField('ScriptOnHeartbeat')){
       this.onHeartbeat = root.getFieldByLabel('ScriptOnHeartbeat').getValue() || '';
     }
     if(root.hasField('ScriptOnEnter')){
@@ -136,7 +139,9 @@ export class ForgeTrigger extends ForgeGameObject {
     if(root.hasField('ScriptOnExit')){
       this.onExit = root.getFieldByLabel('ScriptOnExit').getValue() || '';
     }
-    if(root.hasField('ScriptOnUserDefine')){
+    if(root.hasField('ScriptUserDefine')){
+      this.onUserDefined = root.getFieldByLabel('ScriptUserDefine').getValue() || '';
+    }else if(root.hasField('ScriptOnUserDefine')){
       this.onUserDefined = root.getFieldByLabel('ScriptOnUserDefine').getValue() || '';
     }
     if(root.hasField('Tag')){
@@ -189,13 +194,13 @@ export class ForgeTrigger extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnTrapTriggered', this.onTrapTriggered) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PaletteID', this.paletteID) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.WORD, 'PortraitId', this.portraitId) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptOnHeartbeat', this.onHeartbeat) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptHeartbeat', this.onHeartbeat) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptOnEnter', this.onEnter) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptOnExit', this.onExit) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptOnUserDefine', this.onUserDefined) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'ScriptUserDefine', this.onUserDefined) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOSTRING, 'Tag', this.tag) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'TemplateResRef', this.templateResRef || '') );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.INT, 'TrapDetectDC', this.trapDetectDC) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'TrapDetectDC', this.trapDetectDC & 0xFF) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'TrapDetectable', this.trapDetectable ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'TrapDisarmable', this.trapDisarmable ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'TrapFlag', this.trapFlag ? 1 : 0) );

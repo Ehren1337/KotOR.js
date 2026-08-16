@@ -4,11 +4,18 @@ import * as nodePath from "path";
 import TabManager from "@/apps/forge/components/tabs/TabManager";
 import { TabManagerProvider } from "@/apps/forge/context/TabManagerContext";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
+import { ForgeTitlebar } from "@/apps/forge/components/shell/ForgeTitlebar";
+import { ForgeStatusBar } from "@/apps/forge/components/shell/ForgeStatusBar";
 import { MenuTop } from "@/apps/forge/components/MenuTop";
 import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerContext";
 import { LayoutContainer } from "@/apps/forge/components/LayoutContainer/LayoutContainer";
 import ModalGrantAccess from "@/apps/forge/components/modal/ModalGrantAccess";
 import { ModalChangeGame } from "@/apps/forge/components/modal/ModalChangeGame";
+import { ModalSettings } from "@/apps/forge/components/modal/ModalSettings";
+import { ModalAbout } from "@/apps/forge/components/modal/ModalAbout";
+import { CommandPalette } from "@/apps/forge/components/CommandPalette";
+import { installForgeKeybindings } from "@/apps/forge/commands/forgeKeybindings";
+import "@/apps/forge/commands/registerForgeCommands";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { useApp } from "@/apps/forge/context/AppContext";
 import { ModalManager } from "@/apps/forge/components/modal/ModalManager";
@@ -32,6 +39,7 @@ export const App = (props: any) => {
   const [loadingScreenBackgroundURL] = appContext.loadingScreenBackgroundURL;
   const [loadingScreenLogoURL] = appContext.loadingScreenLogoURL;
   const [isDragOver, setIsDragOver] = useState(false);
+  const [westOpen, setWestOpen] = useState(ForgeState.explorerPaneOpen);
   const dragCounter = useRef(0);
   const isFileDragEvent = (e: React.DragEvent<HTMLDivElement>) => {
     const types = e.dataTransfer?.types;
@@ -81,6 +89,16 @@ export const App = (props: any) => {
     return () => {
       //Deconstructor
     }
+  });
+
+  useEffectOnce(() => {
+    const uninstallKeys = installForgeKeybindings();
+    const syncWest = () => setWestOpen(ForgeState.explorerPaneOpen);
+    ForgeState.addEventListener("onExplorerPaneToggle", syncWest);
+    return () => {
+      uninstallKeys();
+      ForgeState.removeEventListener("onExplorerPaneToggle", syncWest);
+    };
   });
 
   const onDragEnter = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -342,7 +360,7 @@ export const App = (props: any) => {
         <img className="tab-manager-empty-state__logo" src={forgeIcon} alt="Forge logo" />
         <button
           type="button"
-          className="tab-manager-empty-state__quick-start-btn"
+          className="forge-btn forge-btn--primary"
           onClick={() => ForgeState.tabManager.addTab(new TabQuickStartState())}
         >
           Open Start Page
@@ -355,23 +373,34 @@ export const App = (props: any) => {
     <>
       <div
         id="app"
+        className="forge-shell"
         style={{ opacity: (appReady) ? '1': '0' }}
         onDragEnter={onDragEnter}
         onDragLeave={onDragLeave}
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        <MenuTop />
-        <div id="container">
-          <LayoutContainerProvider>
-            <LayoutContainer westContent={westContent}>
+        <ForgeTitlebar>
+          <MenuTop />
+        </ForgeTitlebar>
+        <div id="container" className="forge-workspace">
+          <LayoutContainerProvider bindExplorer>
+            <LayoutContainer
+              westContent={westContent}
+              westOpen={westOpen}
+              onWestOpenChange={(open) => ForgeState.setExplorerPaneOpen(open)}
+            >
               <TabManagerProvider manager={ForgeState.tabManager}>
                 <TabManager renderEmptyState={renderMainTabsEmptyState}></TabManager>
               </TabManagerProvider>
             </LayoutContainer>
           </LayoutContainerProvider>
         </div>
+        <ForgeStatusBar />
+        <ModalSettings></ModalSettings>
         <ModalChangeGame></ModalChangeGame>
+        <ModalAbout />
+        <CommandPalette />
         <ForgeFloatingMiniPlayer />
         {isDragOver && (
           <div className="drag-drop-overlay">
