@@ -9,8 +9,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ForgeButton, ForgeInput, ForgeSelect } from "@/apps/forge/components/ui";
 import { SettingRow } from "@/apps/forge/settings/SettingRow";
-import { GameEngineType } from "@/enums/engine";
-import { ApplicationProfile } from "@/utility/ApplicationProfile";
 import { registerSettingsPage, settingMatchesQuery } from "@/apps/forge/settings/settingsRegistry";
 import {
   FORGE_THEME_TOKENS,
@@ -18,15 +16,16 @@ import {
   ForgeThemeColorGroup,
   ForgeThemeColorKey,
   addForgeThemeChangeListener,
-  beginForgeThemeDesignerPreview,
   colorToPickerValue,
   duplicateForgeTheme,
   endForgeThemeDesignerPreview,
   exportForgeThemeToFile,
+  gameKeyToThemeSlot,
   getForgeThemeDefinition,
   getThemeByGame,
   getThemeIdForGame,
   installForgeThemeFromFile,
+  isForgeThemeDesignerPreviewActive,
   listForgeThemes,
   removeForgeThemeChangeListener,
   resetThemeColor,
@@ -41,7 +40,7 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 const GROUPS: ForgeThemeColorGroup[] = ["Background", "Text", "Borders", "Accent", "Status"];
 
 function currentGameSlot(): ForgeGameThemeKey {
-  return ApplicationProfile.GameKey === GameEngineType.TSL ? "TSL" : "KOTOR";
+  return gameKeyToThemeSlot();
 }
 
 export function AppearanceSettingsPage() {
@@ -63,7 +62,6 @@ export function AppearanceSettingsPage() {
   });
 
   useEffect(() => {
-    beginForgeThemeDesignerPreview(getThemeIdForGame());
     return () => {
       endForgeThemeDesignerPreview();
     };
@@ -77,10 +75,13 @@ export function AppearanceSettingsPage() {
   const previewingOtherTheme = resolved.id !== assignedId;
 
   const onGameThemeChange = (slot: ForgeGameThemeKey, themeId: string) => {
-    setThemeForGame(slot, themeId, false);
+    const previewing = isForgeThemeDesignerPreviewActive();
+    setThemeForGame(slot, themeId, !previewing);
     if (slot === currentSlot) {
-      previewTheme(themeId);
-      return;
+      setEditingId(themeId);
+      if (previewing) {
+        setForgeThemeDesignerPreview(themeId);
+      }
     }
     bump();
   };
@@ -124,7 +125,7 @@ export function AppearanceSettingsPage() {
   };
 
   const onUseForCurrentGame = () => {
-    setThemeForGame(currentSlot, resolved.id, false);
+    setThemeForGame(currentSlot, resolved.id, !isForgeThemeDesignerPreviewActive());
     bump();
   };
 
@@ -150,7 +151,7 @@ export function AppearanceSettingsPage() {
     <div className="forge-settings-page">
       <h3 className="forge-settings-page__title">Appearance</h3>
       <p className="forge-settings-page__lead">
-        Choose which color theme each game loads. The designer only previews a theme while this page is open; closing Settings restores the active game’s assigned theme.
+        Choose which color theme each game loads. The Color Theme Designer only previews a different theme after you pick one there; per-game assignments keep applying until then. Closing Settings restores the active game’s assigned theme.
       </p>
       <SettingRow
         label="Theme for Knights of the Old Republic"

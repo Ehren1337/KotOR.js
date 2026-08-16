@@ -10,6 +10,27 @@ import { GameEngineType } from "@/enums/engine";
 import { ApplicationProfile } from "@/utility/ApplicationProfile";
 import { ConfigClient } from "@/utility/ConfigClient";
 
+type ForgeKotORRuntime = {
+  ApplicationProfile?: typeof ApplicationProfile;
+  ConfigClient?: typeof ConfigClient;
+};
+
+function forgeKotORRuntime(): ForgeKotORRuntime | undefined {
+  if (typeof globalThis === "undefined") {
+    return undefined;
+  }
+  return (globalThis as { KotOR?: ForgeKotORRuntime }).KotOR;
+}
+
+/** Prefer the webpack-external KotOR singleton; Forge bundles a second copy of these modules. */
+function activeApplicationProfile(): typeof ApplicationProfile {
+  return forgeKotORRuntime()?.ApplicationProfile || ApplicationProfile;
+}
+
+function activeConfigClient(): typeof ConfigClient {
+  return forgeKotORRuntime()?.ConfigClient || ConfigClient;
+}
+
 export type ForgeColorScheme = "dark" | "light";
 export type ForgeGameThemeKey = "KOTOR" | "TSL";
 export type ForgeThemeId = string;
@@ -238,7 +259,7 @@ export function isForgeThemeColorKey(value: unknown): value is ForgeThemeColorKe
 }
 
 export function readUserThemes(): ForgeThemeDefinition[] {
-  const value = ConfigClient.get(FORGE_USER_THEMES_KEY);
+  const value = activeConfigClient().get(FORGE_USER_THEMES_KEY);
   if (!Array.isArray(value)) {
     return [];
   }
@@ -300,7 +321,7 @@ export function getForgeThemeDefinition(id: ForgeThemeId): ForgeThemeDefinition 
 }
 
 export function readThemeCustomizations(): Record<string, Partial<ForgeThemeColors>> {
-  const value = ConfigClient.get(FORGE_THEME_CUSTOMIZATIONS_KEY);
+  const value = activeConfigClient().get(FORGE_THEME_CUSTOMIZATIONS_KEY);
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -381,13 +402,13 @@ function roundTripThemes(entries: ForgeThemeDefinition[]): Array<Record<string, 
 }
 
 export function ensureForgeThemeConfig(): ForgeThemeByGame {
-  const forge = (ConfigClient.get("Forge") as Record<string, any>) || {};
+  const forge = (activeConfigClient().get("Forge") as Record<string, any>) || {};
   if (forge.themeMigrated) {
     return readThemeByGameFrom(forge);
   }
   const mapped = migrateLegacyForgeAccent(forge);
-  ConfigClient.set(FORGE_THEME_BY_GAME_KEY, mapped);
-  ConfigClient.set(FORGE_THEME_MIGRATED_KEY, true);
+  activeConfigClient().set(FORGE_THEME_BY_GAME_KEY, mapped);
+  activeConfigClient().set(FORGE_THEME_MIGRATED_KEY, true);
   return mapped;
 }
 
@@ -399,12 +420,19 @@ function readThemeByGameFrom(forge: Record<string, any> | null | undefined): For
 }
 
 export function getThemeByGame(): ForgeThemeByGame {
-  return readThemeByGameFrom(ConfigClient.get("Forge") as Record<string, any>);
+  return readThemeByGameFrom(activeConfigClient().get("Forge") as Record<string, any>);
 }
 
 export function gameKeyToThemeSlot(gameKey?: GameEngineType | string): ForgeGameThemeKey {
-  const key = String(gameKey || ApplicationProfile.GameKey || GameEngineType.KOTOR).toUpperCase();
-  return key === "TSL" ? "TSL" : "KOTOR";
+  const profile = activeApplicationProfile();
+  const raw = gameKey ?? profile.GameKey ?? profile.key;
+  if (raw === GameEngineType.TSL) {
+    return "TSL";
+  }
+  if (raw === GameEngineType.KOTOR) {
+    return "KOTOR";
+  }
+  return profile.resolveGameKey({ key: String(raw ?? "") }) === GameEngineType.TSL ? "TSL" : "KOTOR";
 }
 
 export function getThemeIdForGame(gameKey?: GameEngineType | string): ForgeThemeId {
@@ -415,8 +443,8 @@ export function getThemeIdForGame(gameKey?: GameEngineType | string): ForgeTheme
 export function setThemeForGame(gameKey: ForgeGameThemeKey | GameEngineType | string, themeId: ForgeThemeId, apply = true): void {
   const slot = gameKeyToThemeSlot(gameKey);
   const next = { ...getThemeByGame(), [slot]: themeId };
-  ConfigClient.set(FORGE_THEME_BY_GAME_KEY, next);
-  if (apply && !designerPreviewActive && slot === gameKeyToThemeSlot(ApplicationProfile.GameKey)) {
+  activeConfigClient().set(FORGE_THEME_BY_GAME_KEY, next);
+  if (apply && !designerPreviewActive && slot === gameKeyToThemeSlot()) {
     applyForgeTheme(themeId);
   }
 }
@@ -546,7 +574,7 @@ export function setThemeColor(themeId: ForgeThemeId, key: ForgeThemeColorKey, va
   const customizations = readThemeCustomizations();
   const overlay = { ...(customizations[themeId] || {}), [key]: value };
   customizations[themeId] = overlay;
-  ConfigClient.set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
+  activeConfigClient().set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
   if (shouldLiveApplyTheme(themeId)) {
     applyForgeTheme(themeId);
   }
@@ -561,7 +589,7 @@ export function resetThemeColor(themeId: ForgeThemeId, key: ForgeThemeColorKey):
   } else {
     delete customizations[themeId];
   }
-  ConfigClient.set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
+  activeConfigClient().set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
   if (shouldLiveApplyTheme(themeId)) {
     applyForgeTheme(themeId);
   }
@@ -571,7 +599,7 @@ export function resetThemeCustomizations(themeId: ForgeThemeId): void {
   const definition = getForgeThemeDefinition(themeId);
   const customizations = readThemeCustomizations();
   delete customizations[themeId];
-  ConfigClient.set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
+  activeConfigClient().set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
 
   if (!definition.builtIn && definition.parentId) {
     const parent = getForgeThemeDefinition(definition.parentId);
@@ -582,7 +610,7 @@ export function resetThemeCustomizations(themeId: ForgeThemeId): void {
         userThemes[i].type = parent.type;
       }
     }
-    ConfigClient.set(FORGE_USER_THEMES_KEY, roundTripThemes(userThemes));
+    activeConfigClient().set(FORGE_USER_THEMES_KEY, roundTripThemes(userThemes));
   }
 
   if (shouldLiveApplyTheme(themeId)) {
@@ -603,7 +631,7 @@ export function duplicateForgeTheme(sourceId: ForgeThemeId, name?: string): Forg
   };
   const userThemes = readUserThemes();
   userThemes.push(entry);
-  ConfigClient.set(FORGE_USER_THEMES_KEY, roundTripThemes(userThemes));
+  activeConfigClient().set(FORGE_USER_THEMES_KEY, roundTripThemes(userThemes));
   return entry;
 }
 
@@ -759,7 +787,7 @@ export function installForgeTheme(file: ForgeThemeFile | string, apply = true): 
   } else {
     existingUsers.push(entry);
   }
-  ConfigClient.set(FORGE_USER_THEMES_KEY, roundTripThemes(existingUsers));
+  activeConfigClient().set(FORGE_USER_THEMES_KEY, roundTripThemes(existingUsers));
   if (apply) {
     setThemeForGame(gameKeyToThemeSlot(), id, true);
   }
