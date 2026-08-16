@@ -31,6 +31,7 @@ export interface NssLanguageHost {
   listProjectNss(): Promise<ProjectNssFile[]>;
   openNss(resref: string, buffer?: Uint8Array): void;
   getNwscriptBuffer(): Uint8Array | undefined;
+  loadNssBuffer?(resref: string): Promise<Uint8Array | undefined>;
   writeProjectFile?(path: string, text: string): Promise<boolean>;
   resolveIncludes?(text: string): Promise<Map<string, string>>;
 }
