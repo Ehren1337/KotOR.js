@@ -11,6 +11,7 @@ import { UI3DRendererView } from "@/apps/forge/components/UI3DRendererView";
 import { UI3DRenderer } from "@/apps/forge/UI3DRenderer";
 import { TXI } from "@/resource/TXI";
 import { OdysseyMaterialBuilder } from "@/three/odyssey/OdysseyMaterialBuilder";
+import { validateTxi } from "@/apps/forge/txi/txiSchema";
 
 import "@/apps/forge/components/tabs/tab-image-viewer/TabImageViewer.scss";
 import {
@@ -47,14 +48,6 @@ export const TabImageViewer = function(props: BaseTabProps){
     fontSize: 12,
   };
   const [txiTheme, setTxiTheme] = useState(() => getMonacoThemeForLanguage("txi"));
-
-  const TXI_DIRECTIVES = new Set([
-    "proceduretype","mipmap","filter","defaultwidth","defaultheight","downsamplemin","downsamplemax",
-    "decal","blending","compresstexture","isbumpmap","islightmap","cube","bumpmapscaling",
-    "bumpmaptexture","bumpyshinytexture","envmaptexture","wateralpha","numx","numy","fps",
-    "numchars","fontheight","baselineheight","texturewidth","spacingr","spacingb","caretindent",
-    "upperleftcoords","lowerrightcoords",
-  ]);
   
   const clampScale = (value: number) => {
     if(value < 0.25) return 0.25;
@@ -173,26 +166,7 @@ export const TabImageViewer = function(props: BaseTabProps){
   };
 
   const validateTXI = (text: string): string[] => {
-    const issues: string[] = [];
-    const lines = text.split(/\r?\n/);
-    for(let i = 0; i < lines.length; i++){
-      const raw = lines[i];
-      const line = raw.trim();
-      if(!line || line.startsWith("//") || line.startsWith("#")) continue;
-      const [directiveRaw, ...rest] = line.split(/\s+/);
-      const directive = directiveRaw.toLowerCase();
-      if(!TXI_DIRECTIVES.has(directive)){
-        issues.push(`Line ${i + 1}: Unknown directive "${directiveRaw}"`);
-        continue;
-      }
-      if((directive === "upperleftcoords" || directive === "lowerrightcoords") && rest.length){
-        const n = Number.parseInt(rest[0], 10);
-        if(!Number.isFinite(n) || n < 0){
-          issues.push(`Line ${i + 1}: "${directive}" requires non-negative point count`);
-        }
-      }
-    }
-    return issues;
+    return validateTxi(text).map((issue) => `Line ${issue.line}: ${issue.message}`);
   };
 
   const txiIssues = validateTXI(txiDraft);
