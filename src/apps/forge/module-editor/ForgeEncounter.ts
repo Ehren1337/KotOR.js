@@ -54,11 +54,12 @@ export class ForgeEncounter extends ForgeGameObject {
   vertexHelperSize: number = 0.125;
   selectedVertexIndex: number = -1;
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -197,7 +198,7 @@ export class ForgeEncounter extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.INT, 'ResetTime', this.resetTime) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.INT, 'Respawns', this.respawns) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.INT, 'SpawnOption', this.spawnOption) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'Tag', this.tag) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOSTRING, 'Tag', this.tag) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'TemplateResRef', this.templateResRef || '') );
 
     return this.blueprint;

@@ -52,7 +52,7 @@ export class TabUTSEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( (response) => {
-          this.sound = new ForgeSound(response.buffer);
+          this.sound = new ForgeSound(response.buffer, file.resref);
           this.processEventListener('onEditorFileLoad', [this]);
           resolve(this.blueprint);
         });

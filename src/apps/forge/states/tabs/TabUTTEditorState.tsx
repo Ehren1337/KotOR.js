@@ -45,7 +45,7 @@ export class TabUTTEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( (response) => {
-          this.trigger = new ForgeTrigger(response.buffer);
+          this.trigger = new ForgeTrigger(response.buffer, file.resref);
           this.processEventListener('onEditorFileLoad', [this]);
           resolve(this.blueprint);
         });

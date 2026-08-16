@@ -46,7 +46,7 @@ export class TabUTWEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( (response) => {
-          this.waypoint = new ForgeWaypoint(response.buffer);
+          this.waypoint = new ForgeWaypoint(response.buffer, file.resref);
           this.processEventListener('onEditorFileLoad', [this]);
           resolve(this.blueprint);
         });

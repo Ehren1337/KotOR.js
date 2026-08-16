@@ -130,7 +130,7 @@ export class EditorFile extends EventListenerModel {
       ? options.ext.toLowerCase()
       : null;
 
-    this.buffer = options.buffer || new Uint8Array(0);
+    this.buffer = options.buffer instanceof Uint8Array ? options.buffer : new Uint8Array(0);
     this.buffer2 = options.buffer2;
     this.mdlAsciiOnly = !!options.mdlAsciiOnly;
     this.path = options.path;
@@ -836,6 +836,16 @@ export class EditorFile extends EventListenerModel {
   }
 
   getPrettyPath(){
+    if(!this.path && this.archive_path){
+      if(this.useGameFileSystem || this.useProjectFileSystem){
+        return `${this.protocol}//~/${this.archive_path}`;
+      }
+      return `${this.archive_path}`;
+    }
+    if(!this.path){
+      return '';
+    }
+
     const parsed = pathParse(this.path);
     if(this.useGameFileSystem){
       if(this.archive_path){

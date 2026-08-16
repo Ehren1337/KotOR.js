@@ -49,7 +49,7 @@ export class TabUTPEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( async (response) => {
-          this.placeable = new ForgePlaceable(response.buffer);
+          this.placeable = new ForgePlaceable(response.buffer, file.resref);
           this.placeable.setContext(this.ui3DRenderer);
           await this.placeable.load();
           this.ui3DRenderer.attachObject(this.placeable.container, false);

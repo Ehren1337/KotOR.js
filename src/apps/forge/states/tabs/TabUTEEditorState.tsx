@@ -65,7 +65,7 @@ export class TabUTEEditorState extends TabState {
         this.tabName = this.file.getFilename();
   
         file.readFile().then( (response) => {
-          this.encounter = new ForgeEncounter(response.buffer);
+          this.encounter = new ForgeEncounter(response.buffer, file.resref);
           this.processEventListener('onEditorFileLoad', [this]);
           resolve(this.blueprint);
         });

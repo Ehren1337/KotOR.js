@@ -1,6 +1,15 @@
 import { ForgeGameObject } from "@/apps/forge/module-editor/ForgeGameObject";
 import * as KotOR from "@/apps/forge/KotOR";
-import { ItemPropertyEntry } from "@/apps/forge/states/tabs/TabUTIEditorState";
+
+export interface ItemPropertyEntry {
+  chanceAppear: number;
+  costTable: number;
+  costValue: number;
+  param1: number;
+  param1Value: number;
+  propertyName: number;
+  subtype: number;
+}
 
 export class ForgeItem extends ForgeGameObject {
   //GIT Instance Properties
@@ -30,11 +39,12 @@ export class ForgeItem extends ForgeGameObject {
   modelLoading: boolean = false;
   kBaseItem: any = {};
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -175,7 +185,9 @@ export class ForgeItem extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Stolen', this.stolen ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.CEXOSTRING, 'Tag', this.tag) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'TemplateResRef', this.templateResRef || '') );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'UpgradeLevel', this.upgradeLevel || 0) );
+    if(this.isTslGame()){
+      root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'UpgradeLevel', this.upgradeLevel || 0) );
+    }
 
     return this.blueprint;
   }

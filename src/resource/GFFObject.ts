@@ -22,6 +22,9 @@ export type GFFObjectOnCompleteCallback = (gff: GFFObject) => void;
  * @license {@link https://www.gnu.org/licenses/gpl-3.0.txt|GPLv3}
  */
 export class GFFObject {
+  /** Odyssey GFF file header is 14 × uint32 (FileType through ListIndicesCount). */
+  static readonly HEADER_SIZE = 56;
+
   BWStructs: BinaryWriter;
   BWFields: BinaryWriter;
   BWFieldData: BinaryWriter;
@@ -150,6 +153,16 @@ export class GFFObject {
   }
 
   parse(binary: Uint8Array, onComplete?: Function){
+    // Untitled / blank-buffer constructors must keep the empty RootNode.
+    // A zero-length buffer is truthy, so callers used to reach buildStruct
+    // with StructCount 0 and tmpStructArray[0] undefined.
+    if(!(binary instanceof Uint8Array) || binary.length < GFFObject.HEADER_SIZE){
+      if(typeof onComplete === 'function'){
+        onComplete(this, this.RootNode);
+      }
+      return;
+    }
+
     this.reader = new BinaryReader(binary);
 
     this.FileType = this.reader.readChars(4);
@@ -202,7 +215,9 @@ export class GFFObject {
     //End Fields
 
     try{
-      this.RootNode = this.buildStruct(this.tmpStructArray[0]);
+      if(this.StructCount >= 1 && this.tmpStructArray[0]){
+        this.RootNode = this.buildStruct(this.tmpStructArray[0]);
+      }
     }catch(e){
       console.error(e);
     }
@@ -687,7 +702,7 @@ export class GFFObject {
     };
 
     //Write the Structs data
-    _header.StructOffset = 56;
+    _header.StructOffset = GFFObject.HEADER_SIZE;
     bw.position = _header.StructOffset;
     bw.write(this.BWStructs.buffer);
 

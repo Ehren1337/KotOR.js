@@ -59,6 +59,7 @@ export class ForgePlaceable extends ForgeGameObject {
   paletteID: number = 0;
   partyInteract: boolean = false;
   plot: boolean = false;
+  portrait: string = '';
   portraitId: number = 0;
   ref: number = 0;
   static: boolean = false;
@@ -73,11 +74,12 @@ export class ForgePlaceable extends ForgeGameObject {
   useable: boolean = false;
   will: number = 0;
 
-  constructor(buffer?: Uint8Array){
+  constructor(buffer?: Uint8Array, templateResRef?: string){
     super();
-    if(buffer){
-      this.loadFromBuffer(buffer);
+    if(templateResRef){
+      this.templateResRef = templateResRef;
     }
+    this.applySourceBuffer(buffer);
     this.addEventListener('onPropertyChange', this.onPropertyChange.bind(this));
   }
 
@@ -242,6 +244,9 @@ export class ForgePlaceable extends ForgeGameObject {
     if(root.hasField('Plot')){
       this.plot = root.getFieldByLabel('Plot').getValue() || false;
     }
+    if(root.hasField('Portrait')){
+      this.portrait = root.getFieldByLabel('Portrait').getValue() || '';
+    }
     if(root.hasField('PortraitId')){
       this.portraitId = root.getFieldByLabel('PortraitId').getValue() || 0;
     }
@@ -305,7 +310,7 @@ export class ForgePlaceable extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'DisarmDC', this.disarmDC) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.DWORD, 'Faction', this.faction) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Fort', this.fort) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'HP', this.hp) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.SHORT, 'HP', this.hp) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Hardness', this.hardness) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'HasInventory', this.hasInventory ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Interruptable', this.interruptable ? 1 : 0) );
@@ -315,13 +320,17 @@ export class ForgePlaceable extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Lockable', this.lockable ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Locked', this.locked ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Min1HP', this.min1HP ? 1 : 0) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnClick', this.onClick) );
+    if(this.isTslGame()){
+      root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnClick', this.onClick) );
+    }
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnClosed', this.onClosed) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnDamaged', this.onDamaged) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnDeath', this.onDeath) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnDisarm', this.onDisarm) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnEndDialogue', this.onEndDialogue) );
-    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnFailToOpen', this.onFailToOpen) );
+    if(this.isTslGame()){
+      root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnFailToOpen', this.onFailToOpen) );
+    }
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnHeartbeat', this.onHeartbeat) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnInvDisturbed', this.onInvDisturbed) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'OnLock', this.onLock) );
@@ -336,6 +345,7 @@ export class ForgePlaceable extends ForgeGameObject {
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PaletteID', this.paletteID) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'PartyInteract', this.partyInteract ? 1 : 0) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Plot', this.plot ? 1 : 0) );
+    root.addField( new KotOR.GFFField(KotOR.GFFDataType.RESREF, 'Portrait', this.portrait || '') );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.WORD, 'PortraitId', this.portraitId) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Ref', this.ref) );
     root.addField( new KotOR.GFFField(KotOR.GFFDataType.BYTE, 'Static', this.static ? 1 : 0) );
