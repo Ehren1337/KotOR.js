@@ -38,6 +38,31 @@ import { classifyShortCircuitRegion } from "@/nwscript/decompiler/NWScriptShortC
 type DecompJumpHint =
   | { kind: "loop"; exit: NWScriptBasicBlock | null; header: NWScriptBasicBlock | null; increment: NWScriptBasicBlock | null }
   | { kind: "switch"; exit: NWScriptBasicBlock };
+
+function vectorTriplesOverlap(leftStart: number, rightStart: number): boolean {
+  return leftStart !== rightStart && leftStart < rightStart + 3 && rightStart < leftStart + 3;
+}
+
+/**
+ * Canonical non-overlapping RSADDF triples. Size-12 CPDOWNSP stores (GetPosition rvalues)
+ * win over CPTOPSP-only copies when two 12-byte float windows overlap.
+ */
+function partitionNonOverlappingVectorStarts(
+  candidates: ReadonlyArray<{ start: number; isStore: boolean }>
+): Set<number> {
+  const sorted = [...candidates].sort((left, right) => {
+    if (left.isStore !== right.isStore) return left.isStore ? -1 : 1;
+    return left.start - right.start;
+  });
+  const accepted: number[] = [];
+  for (const candidate of sorted) {
+    if (accepted.some(start => start === candidate.start || vectorTriplesOverlap(start, candidate.start))) {
+      continue;
+    }
+    accepted.push(candidate.start);
+  }
+  return new Set(accepted);
+}
 /**
  * Converts ControlNode tree to NWScriptASTNode tree.
  * This is the bridge between the control flow structure and the abstract syntax tree.
@@ -115,6 +140,10 @@ export class NWScriptControlNodeToASTConverter {
   /** Physical RSADDF triples proven by a 12-byte frame access to represent one vector local. */
   private functionVectorLocalAllocationIndices:
     Map<NWScriptFunction | null, Set<number>> = new Map();
+
+  /** Allocation start → true when a size-12 CPDOWNSP store proved the window. */
+  private functionVectorLocalStartProofs:
+    Map<NWScriptFunction | null, Map<number, boolean>> = new Map();
 
   /** First allocation index → flattened fields for synthesized local user structs. */
   private functionStructureLocalLayouts:
@@ -466,7 +495,8 @@ export class NWScriptControlNodeToASTConverter {
   private registerVectorLocalAtStackPosition(
     functionContext: NWScriptFunction | null,
     stackPosition: number,
-    positions: Map<number, number>
+    positions: Map<number, number>,
+    isStore: boolean
   ): void {
     const first = positions.get(stackPosition);
     if (
@@ -479,9 +509,53 @@ export class NWScriptControlNodeToASTConverter {
     ) {
       return;
     }
-    const starts = this.getVectorLocalAllocationStarts(functionContext);
-    starts.add(first);
-    this.stackSimulator.setVectorLocalAllocationStarts(starts);
+    this.addVectorLocalStartProof(functionContext, first, isStore);
+    this.stackSimulator.setVectorLocalAllocationStarts(
+      this.getVectorLocalAllocationStarts(functionContext)
+    );
+  }
+
+  private addVectorLocalStartProof(
+    functionContext: NWScriptFunction | null,
+    start: number,
+    isStore: boolean
+  ): void {
+    let proofs = this.functionVectorLocalStartProofs.get(functionContext);
+    if (!proofs) {
+      proofs = new Map();
+      this.functionVectorLocalStartProofs.set(functionContext, proofs);
+    }
+    proofs.set(start, proofs.get(start) === true || isStore);
+    this.rebuildCanonicalVectorStarts(functionContext);
+  }
+
+  private rebuildCanonicalVectorStarts(functionContext: NWScriptFunction | null): void {
+    const proofs = this.functionVectorLocalStartProofs.get(functionContext) ?? new Map();
+    const canonical = partitionNonOverlappingVectorStarts(
+      [...proofs.entries()].map(([start, isStore]) => ({ start, isStore }))
+    );
+    this.functionVectorLocalAllocationIndices.set(functionContext, canonical);
+    this.pruneStructureLayoutsOverlappingVectors(functionContext, canonical);
+  }
+
+  /**
+   * A size-12 float store (GetPosition) is a vector local. An overlapping mixed-type copy
+   * must not remain a synthesized struct that swallows the vector's first slot.
+   */
+  private pruneStructureLayoutsOverlappingVectors(
+    functionContext: NWScriptFunction | null,
+    vectorStarts: ReadonlySet<number>
+  ): void {
+    const layouts = this.getStructureLocalLayouts(functionContext);
+    for (const [structStart, fields] of [...layouts]) {
+      const structEnd = structStart + fields.length;
+      const overlaps = [...vectorStarts].some(start =>
+        start < structEnd && structStart < start + 3
+      );
+      if (overlaps) {
+        layouts.delete(structStart);
+      }
+    }
   }
 
   private getVectorLocalAllocationStarts(
@@ -609,7 +683,6 @@ export class NWScriptControlNodeToASTConverter {
       }
     }
 
-    const starts = this.getVectorLocalAllocationStarts(func);
     for (const block of func.bodyBlocks) {
       let state: FrameState | null = entries.get(block) ?? null;
       if (!state) continue;
@@ -640,7 +713,7 @@ export class NWScriptControlNodeToASTConverter {
                 slots === 3 &&
                 fieldTypes.every(dataType => dataType === NWScriptDataType.FLOAT)
               ) {
-                starts.add(first);
+                this.addVectorLocalStartProof(func, first, instruction.code === OP_CPDOWNSP);
               } else {
                 this.getStructureLocalLayouts(func).set(first, fieldTypes);
               }
@@ -651,6 +724,10 @@ export class NWScriptControlNodeToASTConverter {
         if (!state) break;
       }
     }
+    this.pruneStructureLayoutsOverlappingVectors(
+      func,
+      this.getVectorLocalAllocationStarts(func)
+    );
   }
 
   /** Resolve one physical local slot to its source-level name, including vector fields. */
@@ -661,10 +738,11 @@ export class NWScriptControlNodeToASTConverter {
   ): string {
     for (const vectorStart of this.getVectorLocalAllocationStarts(functionContext)) {
       if (allocationIndex >= vectorStart && allocationIndex < vectorStart + 3) {
+        if (wholeAggregate) {
+          return `localVar_${vectorStart}`;
+        }
         const component = ['x', 'y', 'z'][allocationIndex - vectorStart];
-        return wholeAggregate && allocationIndex === vectorStart
-          ? `localVar_${vectorStart}`
-          : `localVar_${vectorStart}.${component}`;
+        return `localVar_${vectorStart}.${component}`;
       }
     }
     for (const [structureStart, fields] of this.getStructureLocalLayouts(functionContext)) {
@@ -1973,7 +2051,8 @@ export class NWScriptControlNodeToASTConverter {
           this.registerVectorLocalAtStackPosition(
             functionContext,
             cpdownspTargetPos,
-            variableStackPositions
+            variableStackPositions,
+            true
           );
         }
         nwscriptDecompilerDebug(`[CPDOWNSP-PRE] Address: 0x${instruction.address.toString(16).padStart(8, '0')}, SP before: ${cpdownspSpBefore}, Offset: ${offsetSigned}, Target pos: ${cpdownspTargetPos}`);
@@ -1983,7 +2062,8 @@ export class NWScriptControlNodeToASTConverter {
         this.registerVectorLocalAtStackPosition(
           functionContext,
           this.stackSimulator.getStackPointer() + toSignedInt32(instruction.offset),
-          variableStackPositions
+          variableStackPositions,
+          false
         );
       }
       
@@ -3950,6 +4030,13 @@ export class NWScriptControlNodeToASTConverter {
       }
     }
     for (let i = 0; i < slotCount; i++) {
+      if (vectorStarts.has(i)) {
+        declarations.push(NWScriptAST.createVariableDeclaration(
+          `localVar_${i}`,
+          NWScriptDataType.VECTOR
+        ));
+        continue;
+      }
       if (aggregateComponents.has(i)) continue;
       const site = rsaddSites[i];
       const init =
