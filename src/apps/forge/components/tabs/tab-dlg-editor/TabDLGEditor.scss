@@ -528,20 +528,63 @@
 }
 
 .dlg-inspector {
+  display: flex;
+  flex-direction: column;
   height: 100%;
-  overflow: auto;
+  min-height: 0;
+  overflow: hidden;
   background: var(--forge-bg);
   border-left: 1px solid var(--forge-border);
 }
 
 .dlg-inspector__banner {
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  flex: 0 0 auto;
   padding: 8px 12px;
   font-weight: 600;
   border-bottom: 1px solid var(--forge-border);
   background: var(--forge-bg);
+}
+
+.dlg-inspector__tabs {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+
+.dlg-inspector__tab {
+  border: 1px solid var(--forge-border);
+  background: var(--forge-bg);
+  color: var(--forge-text);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.dlg-inspector__tab.is-active {
+  border-color: var(--forge-accent);
+  color: var(--forge-text-bright, var(--forge-text));
+  background: color-mix(in srgb, var(--forge-accent) 18%, var(--forge-bg));
+}
+
+.dlg-inspector__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.dlg-details {
+  border: 1px solid var(--forge-border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.dlg-details summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  color: var(--forge-text-muted, var(--forge-text));
 }
 
 .dlg-inspector-pane {

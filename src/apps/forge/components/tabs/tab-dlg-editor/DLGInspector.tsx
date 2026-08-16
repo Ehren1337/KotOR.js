@@ -1,11 +1,10 @@
-import React from "react";
+﻿import React, { useState } from "react";
 import { CExoLocStringEditor } from "@/apps/forge/components/CExoLocStringEditor";
 import { ForgeCheckbox } from "@/apps/forge/components/forge-checkbox/forge-checkbox";
 import { ScriptResRefInput } from "@/apps/forge/components/script-resref-input/ScriptResRefInput";
 import { ForgeButton, ForgeInput, ForgeSelect } from "@/apps/forge/components/ui";
-import { SubTabHost, type SubTab } from "@/apps/forge/components/SubTabHost";
 import { isTslForgeGame } from "@/apps/forge/dlg/dlgGame";
-import { locStringPreview } from "@/apps/forge/dlg/dlgLocString";
+import { formatDlgNodeLine } from "@/apps/forge/dlg/dlgLocString";
 import type { ForgeDLG } from "@/apps/forge/dlg/ForgeDLG";
 import type { ForgeDLGLink, ForgeDLGNode, ForgeDLGScriptParams } from "@/apps/forge/dlg/ForgeDLGTypes";
 import { TabDLGEditorState } from "@/apps/forge/states/tabs/TabDLGEditorState";
@@ -100,12 +99,12 @@ function LinkEditor(props: {
         >
           {targets.map((n) => (
             <option key={n.id} value={n.id}>
-              {n.id} · {locStringPreview(n.text).slice(0, 40) || n.speaker || wantKind}
+              {n.id} Â· {formatDlgNodeLine(n, tab.textByNodeId).slice(0, 40) || n.speaker || wantKind}
             </option>
           ))}
         </ForgeSelect>
-        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, -1); })}>↑</ForgeButton>
-        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, 1); })}>↓</ForgeButton>
+        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, -1); })}>â†‘</ForgeButton>
+        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, 1); })}>â†“</ForgeButton>
         <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.removeLink(link.id); })}>Remove</ForgeButton>
       </div>
       <FieldRow label="Active">
@@ -124,18 +123,21 @@ function LinkEditor(props: {
           </FieldRow>
         </>
       ) : null}
-      <ScriptParamsEditor
-        label="Link params"
-        params={link.params}
-        onChange={(next) => tab.mutate(() => { link.params = next; })}
-      />
-      {showK2 ? (
+      <details className="dlg-details">
+        <summary>Link params</summary>
         <ScriptParamsEditor
-          label="Link params 2"
-          params={link.params2}
-          onChange={(next) => tab.mutate(() => { link.params2 = next; })}
+          label="Link params"
+          params={link.params}
+          onChange={(next) => tab.mutate(() => { link.params = next; })}
         />
-      ) : null}
+        {showK2 ? (
+          <ScriptParamsEditor
+            label="Link params 2"
+            params={link.params2}
+            onChange={(next) => tab.mutate(() => { link.params2 = next; })}
+          />
+        ) : null}
+      </details>
     </div>
   );
 }
@@ -192,6 +194,27 @@ function RootInspector(props: { tab: TabDLGEditorState; dlg: ForgeDLG; showK2: b
   );
 }
 
+function InspectorTabs(props: {
+  tabs: Array<{ id: string; label: string }>;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <div className="dlg-inspector__tabs">
+      {props.tabs.map((tab) => (
+        <button
+          key={tab.id}
+          type="button"
+          className={`dlg-inspector__tab${props.value === tab.id ? " is-active" : ""}`}
+          onClick={() => props.onChange(tab.id)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function NodeInspector(props: {
   tab: TabDLGEditorState;
   dlg: ForgeDLG;
@@ -200,88 +223,8 @@ function NodeInspector(props: {
   onRequestAdd: (ownerId: string, kind: "entry" | "reply") => void;
 }) {
   const { tab, dlg, node, showK2 } = props;
+  const [pane, setPane] = useState<"line" | "links" | "scripts" | "stage">("line");
   const patch = (fn: (n: ForgeDLGNode) => void) => tab.mutate(() => fn(node));
-
-  const line: SubTab = {
-    id: "line",
-    label: "Line",
-    headerTitle: node.kind === "entry" ? "NPC line" : "Player reply",
-    content: (
-      <div className="dlg-inspector-pane">
-        <CExoLocStringEditor value={node.text} onChange={(value) => patch((n) => { n.text = value; })} />
-        <FieldRow label="Speaker"><TextInput value={node.speaker} onChange={(s) => patch((n) => { n.speaker = s; })} /></FieldRow>
-        <FieldRow label="Listener"><TextInput value={node.listener} onChange={(s) => patch((n) => { n.listener = s; })} /></FieldRow>
-        <FieldRow label="Comment"><TextInput value={node.comment} onChange={(s) => patch((n) => { n.comment = s; })} /></FieldRow>
-        <ForgeCheckbox label="Unskippable" value={!!node.nodeUnskippable} onChange={(v) => patch((n) => { n.nodeUnskippable = v ? 1 : 0; })} />
-      </div>
-    ),
-  };
-
-  const links: SubTab = {
-    id: "links",
-    label: "Links",
-    headerTitle: "Links",
-    content: (
-      <div className="dlg-inspector-pane">
-        {node.links.map((link) => (
-          <LinkEditor key={link.id} tab={tab} dlg={dlg} owner={node} link={link} showK2={showK2} />
-        ))}
-        <ForgeButton
-          type="button"
-          size="sm"
-          onClick={() => props.onRequestAdd(node.id, node.kind === "entry" ? "reply" : "entry")}
-        >
-          Add link
-        </ForgeButton>
-      </div>
-    ),
-  };
-
-  const scripts: SubTab = {
-    id: "scripts",
-    label: "Scripts",
-    headerTitle: "Action scripts",
-    content: (
-      <div className="dlg-inspector-pane">
-        <FieldRow label="Script">
-          <ScriptResRefInput value={node.script} onChange={(e) => patch((n) => { n.script = e.target.value; })} />
-        </FieldRow>
-        {showK2 ? (
-          <>
-            <ScriptParamsEditor label="Action params" params={node.scriptParams} onChange={(next) => patch((n) => { n.scriptParams = next; })} />
-            <FieldRow label="Script2">
-              <ScriptResRefInput value={node.script2} onChange={(e) => patch((n) => { n.script2 = e.target.value; n.k2Present = true; })} />
-            </FieldRow>
-            <ScriptParamsEditor label="Action params 2" params={node.script2Params} onChange={(next) => patch((n) => { n.script2Params = next; })} />
-          </>
-        ) : null}
-      </div>
-    ),
-  };
-
-  const vo: SubTab = {
-    id: "vo",
-    label: "VO",
-    headerTitle: "Voice / sound",
-    content: (
-      <div className="dlg-inspector-pane">
-        <FieldRow label="VO_ResRef"><TextInput value={node.voResRef} onChange={(s) => patch((n) => { n.voResRef = s; })} maxLength={16} /></FieldRow>
-        <FieldRow label="Sound"><TextInput value={node.sound} onChange={(s) => patch((n) => { n.sound = s; })} maxLength={16} /></FieldRow>
-        <FieldRow label="SoundExists"><NumInput value={node.soundExists} onChange={(n) => patch((node) => { node.soundExists = n; })} /></FieldRow>
-        {showK2 ? (
-          <>
-            <FieldRow label="Emotion"><NumInput value={node.emotion} onChange={(n) => patch((node) => { node.emotion = n; })} /></FieldRow>
-            <FieldRow label="AlienRaceNode"><NumInput value={node.alienRaceNode} onChange={(n) => patch((node) => { node.alienRaceNode = n; })} /></FieldRow>
-            <FieldRow label="FacialAnim"><NumInput value={node.facialAnimation} onChange={(n) => patch((node) => { node.facialAnimation = n; })} /></FieldRow>
-            <ForgeCheckbox label="RecordVO" value={!!node.recordVO} onChange={(v) => patch((n) => { n.recordVO = v ? 1 : 0; })} />
-            <ForgeCheckbox label="RecordNoVO override" value={!!node.recordNoVOOverride} onChange={(v) => patch((n) => { n.recordNoVOOverride = v ? 1 : 0; })} />
-            <ForgeCheckbox label="VO text changed" value={!!node.voTextChanged} onChange={(v) => patch((n) => { n.voTextChanged = v ? 1 : 0; })} />
-          </>
-        ) : null}
-      </div>
-    ),
-  };
-
   const waitBits: Array<{ bit: number; label: string }> = [
     { bit: 0x01, label: "Wait camera" },
     { bit: 0x02, label: "Wait VO" },
@@ -290,92 +233,138 @@ function NodeInspector(props: {
     { bit: 0x10, label: "Explicit delay" },
   ];
 
-  const camera: SubTab = {
-    id: "camera",
-    label: "Camera",
-    headerTitle: "Camera",
-    content: (
-      <div className="dlg-inspector-pane">
-        <FieldRow label="Angle">
-          <ForgeSelect value={node.cameraAngle} onChange={(e) => patch((n) => { n.cameraAngle = Number(e.target.value); })}>
-            {CAMERA_ANGLES.map((label, i) => (
-              <option key={label} value={i}>{i} · {label}</option>
-            ))}
-          </ForgeSelect>
-        </FieldRow>
-        <FieldRow label="CameraID"><NumInput value={node.cameraID} onChange={(n) => patch((node) => { node.cameraID = n; })} /></FieldRow>
-        <FieldRow label="CameraAnimation"><NumInput value={node.cameraAnimation} onChange={(n) => patch((node) => { node.cameraAnimation = n; })} /></FieldRow>
-        <FieldRow label="CamFieldOfView"><NumInput value={node.camFieldOfView} onChange={(n) => patch((node) => { node.camFieldOfView = n; })} step={0.1} /></FieldRow>
-        <FieldRow label="CamVidEffect"><NumInput value={node.camVidEffect} onChange={(n) => patch((node) => { node.camVidEffect = n; })} /></FieldRow>
-      </div>
-    ),
-  };
-
-  const anim: SubTab = {
-    id: "anim",
-    label: "Anim",
-    headerTitle: "AnimList",
-    content: (
-      <div className="dlg-inspector-pane">
-        {node.animations.map((animRow, i) => (
-          <div key={i} className="dlg-inline-row">
-            <NumInput value={animRow.animation} onChange={(n) => patch((node) => { node.animations[i].animation = n; })} />
-            <TextInput value={animRow.participant} onChange={(s) => patch((node) => { node.animations[i].participant = s; })} />
-            <ForgeButton type="button" size="sm" onClick={() => patch((node) => { node.animations.splice(i, 1); })}>Remove</ForgeButton>
+  return (
+    <>
+      <InspectorTabs
+        tabs={[
+          { id: "line", label: "Line" },
+          { id: "links", label: "Links" },
+          { id: "scripts", label: "Scripts" },
+          { id: "stage", label: "Stage" },
+        ]}
+        value={pane}
+        onChange={(id) => setPane(id as typeof pane)}
+      />
+      <div className="dlg-inspector__body">
+        {pane === "line" ? (
+          <div className="dlg-inspector-pane">
+            <CExoLocStringEditor
+              value={node.text}
+              preview={tab.textByNodeId.get(node.id)}
+              onChange={(value) => patch((n) => { n.text = value; })}
+            />
+            <FieldRow label="Speaker"><TextInput value={node.speaker} onChange={(s) => patch((n) => { n.speaker = s; })} /></FieldRow>
+            <FieldRow label="Listener"><TextInput value={node.listener} onChange={(s) => patch((n) => { n.listener = s; })} /></FieldRow>
+            <FieldRow label="Comment"><TextInput value={node.comment} onChange={(s) => patch((n) => { n.comment = s; })} /></FieldRow>
+            <ForgeCheckbox label="Unskippable" value={!!node.nodeUnskippable} onChange={(v) => patch((n) => { n.nodeUnskippable = v ? 1 : 0; })} />
+            <div className="dlg-params__title">Voice / sound</div>
+            <FieldRow label="VO_ResRef"><TextInput value={node.voResRef} onChange={(s) => patch((n) => { n.voResRef = s; })} maxLength={16} /></FieldRow>
+            <FieldRow label="Sound"><TextInput value={node.sound} onChange={(s) => patch((n) => { n.sound = s; })} maxLength={16} /></FieldRow>
+            <FieldRow label="SoundExists"><NumInput value={node.soundExists} onChange={(n) => patch((node) => { node.soundExists = n; })} /></FieldRow>
+            {showK2 ? (
+              <>
+                <FieldRow label="Emotion"><NumInput value={node.emotion} onChange={(n) => patch((node) => { node.emotion = n; })} /></FieldRow>
+                <FieldRow label="AlienRaceNode"><NumInput value={node.alienRaceNode} onChange={(n) => patch((node) => { node.alienRaceNode = n; })} /></FieldRow>
+                <FieldRow label="FacialAnim"><NumInput value={node.facialAnimation} onChange={(n) => patch((node) => { node.facialAnimation = n; })} /></FieldRow>
+                <ForgeCheckbox label="RecordVO" value={!!node.recordVO} onChange={(v) => patch((n) => { n.recordVO = v ? 1 : 0; })} />
+                <ForgeCheckbox label="RecordNoVO override" value={!!node.recordNoVOOverride} onChange={(v) => patch((n) => { n.recordNoVOOverride = v ? 1 : 0; })} />
+                <ForgeCheckbox label="VO text changed" value={!!node.voTextChanged} onChange={(v) => patch((n) => { n.voTextChanged = v ? 1 : 0; })} />
+              </>
+            ) : null}
           </div>
-        ))}
-        <ForgeButton type="button" size="sm" onClick={() => patch((n) => { n.animations.push({ animation: 0, participant: "" }); })}>
-          Add animation
-        </ForgeButton>
-      </div>
-    ),
-  };
-
-  const fade: SubTab = {
-    id: "fade",
-    label: "Fade",
-    headerTitle: "Fade / delay",
-    content: (
-      <div className="dlg-inspector-pane">
-        <FieldRow label="FadeType"><NumInput value={node.fadeType} onChange={(n) => patch((node) => { node.fadeType = n; })} /></FieldRow>
-        <FieldRow label="FadeLength"><NumInput value={node.fadeLength} onChange={(n) => patch((node) => { node.fadeLength = n; })} step={0.01} /></FieldRow>
-        <FieldRow label="FadeDelay"><NumInput value={node.fadeDelay} onChange={(n) => patch((node) => { node.fadeDelay = n; })} step={0.01} /></FieldRow>
-        <FieldRow label="Fade R"><NumInput value={node.fadeColor.r} onChange={(n) => patch((node) => { node.fadeColor.r = n; })} step={0.01} /></FieldRow>
-        <FieldRow label="Fade G"><NumInput value={node.fadeColor.g} onChange={(n) => patch((node) => { node.fadeColor.g = n; })} step={0.01} /></FieldRow>
-        <FieldRow label="Fade B"><NumInput value={node.fadeColor.b} onChange={(n) => patch((node) => { node.fadeColor.b = n; })} step={0.01} /></FieldRow>
-        <FieldRow label="Delay"><NumInput value={node.delay} onChange={(n) => patch((node) => { node.delay = n >>> 0; })} /></FieldRow>
-        {waitBits.map((bit) => (
-          <ForgeCheckbox
-            key={bit.bit}
-            label={bit.label}
-            value={!!(node.waitFlags & bit.bit)}
-            onChange={(v) => patch((n) => {
-              n.waitFlags = v ? (n.waitFlags | bit.bit) : (n.waitFlags & ~bit.bit);
-            })}
-          />
-        ))}
-      </div>
-    ),
-  };
-
-  const quest: SubTab = {
-    id: "quest",
-    label: "Quest",
-    headerTitle: "Quest / plot",
-    content: (
-      <div className="dlg-inspector-pane">
-        <FieldRow label="Quest"><TextInput value={node.quest} onChange={(s) => patch((n) => { n.quest = s; })} /></FieldRow>
-        <FieldRow label="QuestEntry"><NumInput value={node.questEntry} onChange={(n) => patch((node) => { node.questEntry = n; })} /></FieldRow>
-        <FieldRow label="PlotIndex"><NumInput value={node.plotIndex} onChange={(n) => patch((node) => { node.plotIndex = n; })} /></FieldRow>
-        <FieldRow label="Plot XP %"><NumInput value={node.plotXPPercentage} onChange={(n) => patch((node) => { node.plotXPPercentage = n; })} step={0.01} /></FieldRow>
-        {showK2 ? (
-          <FieldRow label="PostProcNode"><NumInput value={node.postProcessNode} onChange={(n) => patch((node) => { node.postProcessNode = n; })} /></FieldRow>
+        ) : null}
+        {pane === "links" ? (
+          <div className="dlg-inspector-pane">
+            {node.links.map((link) => (
+              <LinkEditor key={link.id} tab={tab} dlg={dlg} owner={node} link={link} showK2={showK2} />
+            ))}
+            <ForgeButton
+              type="button"
+              size="sm"
+              onClick={() => props.onRequestAdd(node.id, node.kind === "entry" ? "reply" : "entry")}
+            >
+              Add link
+            </ForgeButton>
+          </div>
+        ) : null}
+        {pane === "scripts" ? (
+          <div className="dlg-inspector-pane">
+            <FieldRow label="Script">
+              <ScriptResRefInput value={node.script} onChange={(e) => patch((n) => { n.script = e.target.value; })} />
+            </FieldRow>
+            {showK2 ? (
+              <>
+                <details className="dlg-details">
+                  <summary>Action params</summary>
+                  <ScriptParamsEditor label="Action params" params={node.scriptParams} onChange={(next) => patch((n) => { n.scriptParams = next; })} />
+                </details>
+                <FieldRow label="Script2">
+                  <ScriptResRefInput value={node.script2} onChange={(e) => patch((n) => { n.script2 = e.target.value; n.k2Present = true; })} />
+                </FieldRow>
+                <details className="dlg-details">
+                  <summary>Action params 2</summary>
+                  <ScriptParamsEditor label="Action params 2" params={node.script2Params} onChange={(next) => patch((n) => { n.script2Params = next; })} />
+                </details>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+        {pane === "stage" ? (
+          <div className="dlg-inspector-pane">
+            <div className="dlg-params__title">Camera</div>
+            <FieldRow label="Angle">
+              <ForgeSelect value={node.cameraAngle} onChange={(e) => patch((n) => { n.cameraAngle = Number(e.target.value); })}>
+                {CAMERA_ANGLES.map((label, i) => (
+                  <option key={label} value={i}>{i} Â· {label}</option>
+                ))}
+              </ForgeSelect>
+            </FieldRow>
+            <FieldRow label="CameraID"><NumInput value={node.cameraID} onChange={(n) => patch((node) => { node.cameraID = n; })} /></FieldRow>
+            <FieldRow label="CameraAnimation"><NumInput value={node.cameraAnimation} onChange={(n) => patch((node) => { node.cameraAnimation = n; })} /></FieldRow>
+            <FieldRow label="CamFieldOfView"><NumInput value={node.camFieldOfView} onChange={(n) => patch((node) => { node.camFieldOfView = n; })} step={0.1} /></FieldRow>
+            <FieldRow label="CamVidEffect"><NumInput value={node.camVidEffect} onChange={(n) => patch((node) => { node.camVidEffect = n; })} /></FieldRow>
+            <div className="dlg-params__title">Animations</div>
+            {node.animations.map((animRow, i) => (
+              <div key={i} className="dlg-inline-row">
+                <NumInput value={animRow.animation} onChange={(n) => patch((node) => { node.animations[i].animation = n; })} />
+                <TextInput value={animRow.participant} onChange={(s) => patch((node) => { node.animations[i].participant = s; })} />
+                <ForgeButton type="button" size="sm" onClick={() => patch((node) => { node.animations.splice(i, 1); })}>Remove</ForgeButton>
+              </div>
+            ))}
+            <ForgeButton type="button" size="sm" onClick={() => patch((n) => { n.animations.push({ animation: 0, participant: "" }); })}>
+              Add animation
+            </ForgeButton>
+            <div className="dlg-params__title">Fade / delay</div>
+            <FieldRow label="FadeType"><NumInput value={node.fadeType} onChange={(n) => patch((node) => { node.fadeType = n; })} /></FieldRow>
+            <FieldRow label="FadeLength"><NumInput value={node.fadeLength} onChange={(n) => patch((node) => { node.fadeLength = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="FadeDelay"><NumInput value={node.fadeDelay} onChange={(n) => patch((node) => { node.fadeDelay = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="Fade R"><NumInput value={node.fadeColor.r} onChange={(n) => patch((node) => { node.fadeColor.r = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="Fade G"><NumInput value={node.fadeColor.g} onChange={(n) => patch((node) => { node.fadeColor.g = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="Fade B"><NumInput value={node.fadeColor.b} onChange={(n) => patch((node) => { node.fadeColor.b = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="Delay"><NumInput value={node.delay} onChange={(n) => patch((node) => { node.delay = n >>> 0; })} /></FieldRow>
+            {waitBits.map((bit) => (
+              <ForgeCheckbox
+                key={bit.bit}
+                label={bit.label}
+                value={!!(node.waitFlags & bit.bit)}
+                onChange={(v) => patch((n) => {
+                  n.waitFlags = v ? (n.waitFlags | bit.bit) : (n.waitFlags & ~bit.bit);
+                })}
+              />
+            ))}
+            <div className="dlg-params__title">Quest / plot</div>
+            <FieldRow label="Quest"><TextInput value={node.quest} onChange={(s) => patch((n) => { n.quest = s; })} /></FieldRow>
+            <FieldRow label="QuestEntry"><NumInput value={node.questEntry} onChange={(n) => patch((node) => { node.questEntry = n; })} /></FieldRow>
+            <FieldRow label="PlotIndex"><NumInput value={node.plotIndex} onChange={(n) => patch((node) => { node.plotIndex = n; })} /></FieldRow>
+            <FieldRow label="Plot XP %"><NumInput value={node.plotXPPercentage} onChange={(n) => patch((node) => { node.plotXPPercentage = n; })} step={0.01} /></FieldRow>
+            {showK2 ? (
+              <FieldRow label="PostProcNode"><NumInput value={node.postProcessNode} onChange={(n) => patch((node) => { node.postProcessNode = n; })} /></FieldRow>
+            ) : null}
+          </div>
         ) : null}
       </div>
-    ),
-  };
-
-  return <SubTabHost tabs={[line, links, scripts, vo, camera, anim, fade, quest]} defaultTab="line" />;
+    </>
+  );
 }
 
 export function DLGInspector(props: {
@@ -386,23 +375,38 @@ export function DLGInspector(props: {
   const dlg = tab.dlg;
   const showK2 = dlg.k2Present || isTslForgeGame();
   const node = tab.selectedId && tab.selectedId !== "root" ? dlg.getNode(tab.selectedId) : undefined;
+  const [rootPane, setRootPane] = useState<"settings" | "starts">("settings");
 
   if (!node) {
     return (
       <div className="dlg-inspector">
         <div className="dlg-inspector__banner">Conversation</div>
-        <RootInspector tab={tab} dlg={dlg} showK2={showK2} />
-        <div className="dlg-params__title">Starting list</div>
-        {dlg.startingLinks.map((link) => (
-          <LinkEditor key={link.id} tab={tab} dlg={dlg} owner="start" link={link} showK2={showK2} />
-        ))}
-        <ForgeButton
-          type="button"
-          size="sm"
-          onClick={() => props.onRequestAdd("start", "entry")}
-        >
-          Add start
-        </ForgeButton>
+        <InspectorTabs
+          tabs={[
+            { id: "settings", label: "Settings" },
+            { id: "starts", label: "Starts" },
+          ]}
+          value={rootPane}
+          onChange={(id) => setRootPane(id as typeof rootPane)}
+        />
+        <div className="dlg-inspector__body">
+          {rootPane === "settings" ? (
+            <RootInspector tab={tab} dlg={dlg} showK2={showK2} />
+          ) : (
+            <div className="dlg-inspector-pane">
+              {dlg.startingLinks.map((link) => (
+                <LinkEditor key={link.id} tab={tab} dlg={dlg} owner="start" link={link} showK2={showK2} />
+              ))}
+              <ForgeButton
+                type="button"
+                size="sm"
+                onClick={() => props.onRequestAdd("start", "entry")}
+              >
+                Add start
+              </ForgeButton>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -410,7 +414,7 @@ export function DLGInspector(props: {
   return (
     <div className="dlg-inspector">
       <div className="dlg-inspector__banner">
-        {node.kind === "entry" ? "Entry" : "Reply"} · {node.id}
+        {node.kind === "entry" ? "Entry" : "Reply"} Â· {node.id}
       </div>
       <NodeInspector tab={tab} dlg={dlg} node={node} showK2={showK2} onRequestAdd={props.onRequestAdd} />
     </div>

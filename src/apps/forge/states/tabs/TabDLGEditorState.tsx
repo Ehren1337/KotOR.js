@@ -19,7 +19,7 @@ export class TabDLGEditorState extends TabState {
   dlg: ForgeDLG = ForgeDLG.createUntitled();
   selectedId: string | undefined;
   viewMode: "graph" | "tree" | "catalog" = "graph";
-  graphLayout: "horizontal" | "vertical" = "horizontal";
+  graphLayout: "horizontal" | "vertical" = "vertical";
   walkthrough = false;
   textByNodeId: Map<string, string> = new Map();
 
