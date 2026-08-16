@@ -9,6 +9,7 @@ import { SubTab, SubTabHost } from "@/apps/forge/components/SubTabHost";
 import { ForgeStore, StoreItemEntry } from "@/apps/forge/module-editor/ForgeStore";
 import { ModalItemBrowserState } from "@/apps/forge/states/modal/ModalItemBrowserState";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
+import { ScriptResRefInput } from "@/apps/forge/components/script-resref-input/ScriptResRefInput";
 
 export const TabUTMEditor = function(props: BaseTabProps){
 
@@ -164,7 +165,7 @@ export const TabUTMEditor = function(props: BaseTabProps){
                 label="On Open Store" 
                 info="Script that runs when the store is opened by a player."
               >
-                <input type="text" placeholder="Enter script name" maxLength={16} value={onOpenStore} onChange={onUpdateResRefField(setOnOpenStore, 'onOpenStore')} />
+                <ScriptResRefInput placeholder="Enter script name" value={onOpenStore} onChange={onUpdateResRefField(setOnOpenStore, 'onOpenStore')} />
               </FormField>
             </tbody>
           </table>

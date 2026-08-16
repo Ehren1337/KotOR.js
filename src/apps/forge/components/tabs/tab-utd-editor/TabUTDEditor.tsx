@@ -8,6 +8,7 @@ import * as KotOR from "@/apps/forge/KotOR";
 import { ForgeCheckbox } from "@/apps/forge/components/forge-checkbox/forge-checkbox";
 import { InfoBubble } from "@/apps/forge/components/info-bubble/info-bubble";
 import { FormField } from "@/apps/forge/components/form-field/FormField";
+import { ScriptResRefInput } from "@/apps/forge/components/script-resref-input/ScriptResRefInput";
 import { ForgeDoor } from "@/apps/forge/module-editor/ForgeDoor";
 
 export const TabUTDEditor = function(props: BaseTabProps){
@@ -359,85 +360,85 @@ export const TabUTDEditor = function(props: BaseTabProps){
                   label="OnClick" 
                   info="Script that runs when the door/trigger is clicked or activated by the player. This is the primary interaction script."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onClick} onChange={onUpdateResRefField(setOnClick, 'onClick')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onClick} onChange={onUpdateResRefField(setOnClick, 'onClick')} />
                 </FormField>
                 <FormField 
                   label="OnClosed" 
                   info="Script that runs when the door is closed. Useful for triggering events, playing sounds, or updating game state."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onClosed} onChange={onUpdateResRefField(setOnClosed, 'onClosed')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onClosed} onChange={onUpdateResRefField(setOnClosed, 'onClosed')} />
                 </FormField>
                 <FormField 
                   label="OnDamaged" 
                   info="Script that runs when the door/trigger takes damage. Can be used to trigger defensive mechanisms or destruction sequences."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onDamaged} onChange={onUpdateResRefField(setOnDamaged, 'onDamaged')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onDamaged} onChange={onUpdateResRefField(setOnDamaged, 'onDamaged')} />
                 </FormField>
                 <FormField 
                   label="OnDeath" 
                   info="Script that runs when the door/trigger is destroyed or 'dies'. Often used for cleanup or triggering destruction effects."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onDeath} onChange={onUpdateResRefField(setOnDeath, 'onDeath')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onDeath} onChange={onUpdateResRefField(setOnDeath, 'onDeath')} />
                 </FormField>
                 <FormField 
                   label="OnDisarm" 
                   info="Script that runs when a trap on the door/trigger is successfully disarmed. Used for trap-related door mechanics."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onDisarm} onChange={onUpdateResRefField(setOnDisarm, 'onDisarm')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onDisarm} onChange={onUpdateResRefField(setOnDisarm, 'onDisarm')} />
                 </FormField>
                 <FormField 
                   label="OnFailToOpen" 
                   info="Script that runs when a player attempts to open the door but fails (due to lock, insufficient skill, etc.)."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onFailToOpen} onChange={onUpdateResRefField(setOnFailToOpen, 'onFailToOpen')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onFailToOpen} onChange={onUpdateResRefField(setOnFailToOpen, 'onFailToOpen')} />
                 </FormField>
                 <FormField 
                   label="OnHeartbeat" 
                   info="Script that runs periodically while the door/trigger is active. Useful for continuous monitoring or timed events."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onHeartbeat} onChange={onUpdateResRefField(setOnHeartbeat, 'onHeartbeat')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onHeartbeat} onChange={onUpdateResRefField(setOnHeartbeat, 'onHeartbeat')} />
                 </FormField>
                 <FormField 
                   label="OnLock" 
                   info="Script that runs when the door/trigger is locked. Can be used to trigger security measures or update game state."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onLock} onChange={onUpdateResRefField(setOnLock, 'onLock')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onLock} onChange={onUpdateResRefField(setOnLock, 'onLock')} />
                 </FormField>
                 <FormField 
                   label="OnMeleeAttacked" 
                   info="Script that runs when the door/trigger is attacked in melee combat. Useful for defensive responses or damage handling."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onMeleeAttacked} onChange={onUpdateResRefField(setOnMeleeAttacked, 'onMeleeAttacked')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onMeleeAttacked} onChange={onUpdateResRefField(setOnMeleeAttacked, 'onMeleeAttacked')} />
                 </FormField>
                 <FormField 
                   label="OnOpen" 
                   info="Script that runs when the door is successfully opened. Often used for triggering events, playing sounds, or updating quest states."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onOpen} onChange={onUpdateResRefField(setOnOpen, 'onOpen')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onOpen} onChange={onUpdateResRefField(setOnOpen, 'onOpen')} />
                 </FormField>
                 <FormField 
                   label="OnSpellCastAt" 
                   info="Script that runs when a spell is cast at the door/trigger. Useful for magical interactions or spell-based door mechanics."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onSpellCastAt} onChange={onUpdateResRefField(setOnSpellCastAt, 'onSpellCastAt')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onSpellCastAt} onChange={onUpdateResRefField(setOnSpellCastAt, 'onSpellCastAt')} />
                 </FormField>
                 <FormField 
                   label="OnTrapTriggered" 
                   info="Script that runs when a trap on the door/trigger is activated. Used for trap effects and consequences."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onTrapTriggered} onChange={onUpdateResRefField(setOnTrapTriggered, 'onTrapTriggered')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onTrapTriggered} onChange={onUpdateResRefField(setOnTrapTriggered, 'onTrapTriggered')} />
                 </FormField>
                 <FormField 
                   label="OnUnlock" 
                   info="Script that runs when the door/trigger is successfully unlocked. Often used for triggering events or updating quest progress."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onUnlock} onChange={onUpdateResRefField(setOnUnlock, 'onUnlock')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onUnlock} onChange={onUpdateResRefField(setOnUnlock, 'onUnlock')} />
                 </FormField>
                 <FormField 
                   label="OnUserDefined" 
                   info="A custom script event that can be triggered by other scripts or game events. Useful for custom door behaviors and interactions."
                 >
-                  <input type="text" placeholder="Enter script name" maxLength={16} value={onUserDefined} onChange={onUpdateResRefField(setOnUserDefined, 'onUserDefined')} />
+                  <ScriptResRefInput placeholder="Enter script name" value={onUserDefined} onChange={onUpdateResRefField(setOnUserDefined, 'onUserDefined')} />
                 </FormField>
             </tbody>
           </table>
