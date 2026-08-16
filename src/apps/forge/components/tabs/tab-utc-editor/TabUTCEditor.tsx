@@ -8,68 +8,15 @@ import * as KotOR from "@/apps/forge/KotOR";
 import { CExoLocStringEditor } from "@/apps/forge/components/CExoLocStringEditor";
 import { ForgeCheckbox } from "@/apps/forge/components/forge-checkbox/forge-checkbox";
 import { TextureCanvas } from "@/apps/forge/components/TextureCanvas/TextureCanvas";
-import { ModalItemBrowserState } from "@/apps/forge/states/modal/ModalItemBrowserState";
-import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { InfoBubble } from "@/apps/forge/components/info-bubble/info-bubble";
 import { faArrowRight } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { UtcEquipmentTab } from "@/apps/forge/components/tabs/tab-utc-editor/UtcEquipmentTab";
 import "@/apps/forge/components/tabs/tab-utc-editor/TabUTCEditor.scss";
 
 export const TabUTCEditor = function(props: BaseTabProps){
 
   const tab: TabUTCEditorState = props.tab as TabUTCEditorState;
-
-  const handleItemSlotClick = (slotType: KotOR.ModuleCreatureArmorSlot) => {
-    const modal = new ModalItemBrowserState((item) => {
-      switch(slotType){
-        case KotOR.ModuleCreatureArmorSlot.HEAD:
-          tab.creature.setProperty('slotHead', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.ARMOR:
-          tab.creature.setProperty('slotArmor', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.LEFTHAND:
-          tab.creature.setProperty('slotLeftHand', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.RIGHTHAND:
-          tab.creature.setProperty('slotRightHand', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.BELT:
-          tab.creature.setProperty('slotBelt', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.IMPLANT:
-          tab.creature.setProperty('slotImplant', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.LEFTARMBAND:
-          tab.creature.setProperty('slotLeftArmband', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.RIGHTARMBAND:
-          tab.creature.setProperty('slotRightArmband', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.HIDE:
-          tab.creature.setProperty('slotHide', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.CLAW1:
-          tab.creature.setProperty('slotClaw1', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.CLAW2:
-          tab.creature.setProperty('slotClaw2', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.CLAW3:
-          tab.creature.setProperty('slotClaw3', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.RIGHTHAND2:
-          tab.creature.setProperty('slotRightHand2', item.resref);
-          break;
-        case KotOR.ModuleCreatureArmorSlot.LEFTHAND2:
-          tab.creature.setProperty('slotLeftHand2', item.resref);
-          break;
-      }
-      tab.updateFile();
-    });
-    modal.attachToModalManager(ForgeState.modalManager);
-    modal.open();
-  };
   const [appearanceType, setAppearanceType] = useState<number>(0);
   const [bodyBag, setBodyBag] = useState<number>(0);
   const [bodyVariation, setBodyVariation] = useState<number>(0);
@@ -1141,24 +1088,12 @@ export const TabUTCEditor = function(props: BaseTabProps){
       )
     },
     {
-      id: 'inventory',
-      label: 'Inventory',
+      id: 'equipment',
+      label: 'Equipment',
       headerIcon: 'fa-suitcase',
-      headerTitle: 'Inventory',
+      headerTitle: 'Equipment',
       content: (
-        <>
-          <div className="iSlots">
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idimplant' : 'iimplant'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.IMPLANT)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idhead' : 'ihead'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.HEAD)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idhands' : 'ihands'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.ARMS)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idforearm_l' : 'iforearm_l'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.LEFTARMBAND)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idarmor' : 'iarmor'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.ARMOR)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idforearm_r' : 'iforearm_r'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.RIGHTARMBAND)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idweap_l' : 'ihand_l'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.LEFTHAND)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idbelt' : 'ibelt'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.BELT)} />
-            <TextureCanvas width={64} height={64} texture={`${race == 5 ? 'idweap_r' : 'ihand_r'}`} onClick={() => handleItemSlotClick(KotOR.ModuleCreatureArmorSlot.RIGHTHAND)} />
-          </div>
-        </>
+        <UtcEquipmentTab tab={tab} race={race} />
       )
     },
     {

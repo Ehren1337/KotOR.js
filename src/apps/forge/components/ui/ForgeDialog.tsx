@@ -59,17 +59,34 @@ export function ForgeDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
+  const onHideRef = useRef(onHide);
+  onHideRef.current = onHide;
+
   const requestHide = useCallback(() => {
-    onHide?.();
-  }, [onHide]);
+    onHideRef.current?.();
+  }, []);
 
   useEffect(() => {
     if (!show) return;
     const previous = document.activeElement as HTMLElement | null;
-    const focusables = panelRef.current?.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    focusables?.[0]?.focus();
+    const panel = panelRef.current;
+    const focusables = Array.from(
+      panel?.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      ) ?? [],
+    ).filter((el) => !el.hasAttribute("disabled"));
+    const preferred =
+      focusables.find((el) => el.matches("input, textarea, select") && el.getAttribute("type") !== "hidden") ||
+      focusables[0];
+    preferred?.focus();
+
+    return () => {
+      previous?.focus?.();
+    };
+  }, [show]);
+
+  useEffect(() => {
+    if (!show) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (keyboard && e.key === "Escape") {
@@ -96,7 +113,6 @@ export function ForgeDialog({
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
-      previous?.focus?.();
     };
   }, [show, keyboard, requestHide]);
 

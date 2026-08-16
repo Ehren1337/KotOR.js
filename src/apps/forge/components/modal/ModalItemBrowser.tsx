@@ -11,7 +11,7 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
   const [show, setShow] = useState(modal.visible);
   const [items, setItems] = useState(modal.filteredItems);
   const [searchQuery, setSearchQuery] = useState(modal.searchQuery);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(modal.items.length === 0);
 
   const onHide = () => {
     setShow(false);
@@ -19,13 +19,15 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
 
   const onShow = () => {
     setShow(true);
-    // Always try to load items when shown if not already loaded
     if (modal.items.length === 0) {
       setLoading(true);
       modal.loadItems().catch((error) => {
         console.error('Failed to load items:', error);
         setLoading(false);
       });
+    } else {
+      setItems([...modal.filteredItems]);
+      setLoading(false);
     }
   };
 
@@ -44,7 +46,15 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
     modal.addEventListener('onShow', onShow);
     modal.addEventListener('onItemsLoaded', onItemsLoaded);
     modal.addEventListener('onSearchChanged', onSearchChanged);
-    
+
+    if (modal.visible) {
+      setShow(true);
+    }
+    if (modal.items.length > 0) {
+      setItems([...modal.filteredItems]);
+      setLoading(false);
+    }
+
     return () => {
       modal.removeEventListener('onHide', onHide);
       modal.removeEventListener('onShow', onShow);
@@ -101,7 +111,11 @@ export const ModalItemBrowser = (props: BaseModalProps) => {
             placeholder="Search items..."
             value={searchQuery}
             onChange={handleSearchChange}
+            autoFocus
           />
+          {modal.slotFilter != null && (
+            <div className="item-browser-filter-hint">Showing items that fit this equipment slot.</div>
+          )}
         </div>
 
         {loading ? (
