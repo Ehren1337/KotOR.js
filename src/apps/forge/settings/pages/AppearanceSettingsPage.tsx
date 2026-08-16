@@ -17,6 +17,7 @@ import {
   ForgeThemeColorKey,
   addForgeThemeChangeListener,
   colorToPickerValue,
+  canUninstallForgeTheme,
   duplicateForgeTheme,
   endForgeThemeDesignerPreview,
   exportForgeThemeToFile,
@@ -34,6 +35,7 @@ import {
   setForgeThemeDesignerPreview,
   setThemeColor,
   setThemeForGame,
+  uninstallForgeTheme,
 } from "@/apps/forge/settings/forgeTheme";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 
@@ -73,6 +75,7 @@ export function AppearanceSettingsPage() {
   const definition = getForgeThemeDefinition(resolved.id);
   const assignedId = themeByGame[currentSlot];
   const previewingOtherTheme = resolved.id !== assignedId;
+  const canUninstall = canUninstallForgeTheme(resolved.id);
 
   const onGameThemeChange = (slot: ForgeGameThemeKey, themeId: string) => {
     const previewing = isForgeThemeDesignerPreviewActive();
@@ -120,6 +123,25 @@ export function AppearanceSettingsPage() {
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : "Could not install this color theme.";
+      window.alert(message);
+    }
+  };
+
+  const onUninstall = () => {
+    if (!canUninstallForgeTheme(resolved.id)) {
+      return;
+    }
+    const confirmed = typeof window === "undefined"
+      || window.confirm(`Uninstall "${resolved.name}"? This cannot be undone.`);
+    if (!confirmed) {
+      return;
+    }
+    try {
+      const nextId = uninstallForgeTheme(resolved.id);
+      previewTheme(nextId);
+    } catch (error) {
+      console.error(error);
+      const message = error instanceof Error ? error.message : "Could not uninstall this color theme.";
       window.alert(message);
     }
   };
@@ -188,7 +210,7 @@ export function AppearanceSettingsPage() {
               Previewing {resolved.name}
               {definition.builtIn ? " — changes are saved as customizations" : ""}
               {previewingOtherTheme ? ` — ${currentSlot === "TSL" ? "TSL" : "KotOR"} still loads ${getForgeThemeDefinition(assignedId).name} until you assign this theme.` : ""}.
-              Export a .forge-theme.json to share it, or install one from a file.
+              Export a .forge-theme.json to share it, or install one from a file. Custom themes can be uninstalled; included themes cannot.
             </p>
           </div>
           <div className="forge-theme-designer__actions">
@@ -209,6 +231,15 @@ export function AppearanceSettingsPage() {
             </ForgeButton>
             <ForgeButton size="sm" onClick={() => { void onExport(); }}>Export Theme…</ForgeButton>
             <ForgeButton size="sm" onClick={() => { void onInstall(); }}>Install Theme…</ForgeButton>
+            <ForgeButton
+              size="sm"
+              variant="danger"
+              disabled={!canUninstall}
+              title={canUninstall ? "Uninstall this custom theme" : "Included themes cannot be removed"}
+              onClick={onUninstall}
+            >
+              Uninstall Theme…
+            </ForgeButton>
             <ForgeButton size="sm" onClick={() => { resetThemeCustomizations(resolved.id); bump(); }}>
               Reset All
             </ForgeButton>
@@ -336,6 +367,6 @@ registerSettingsPage({
   id: "appearance",
   label: "Appearance",
   icon: "fa-solid fa-palette",
-  keywords: ["appearance", "theme", "accent", "color", "light", "dark", "kotor", "tsl", "export", "install"],
+  keywords: ["appearance", "theme", "accent", "color", "light", "dark", "kotor", "tsl", "export", "install", "uninstall"],
   render: () => React.createElement(AppearanceSettingsPage),
 });

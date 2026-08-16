@@ -635,6 +635,68 @@ export function duplicateForgeTheme(sourceId: ForgeThemeId, name?: string): Forg
   return entry;
 }
 
+export function canUninstallForgeTheme(themeId: ForgeThemeId): boolean {
+  if (BUILTIN_BY_ID[themeId]) {
+    return false;
+  }
+  const userThemes = readUserThemes();
+  for (let i = 0; i < userThemes.length; i++) {
+    if (userThemes[i].id === themeId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function uninstallForgeTheme(themeId: ForgeThemeId): ForgeThemeId {
+  if (BUILTIN_BY_ID[themeId]) {
+    throw new Error("Built-in themes cannot be uninstalled.");
+  }
+  const userThemes = readUserThemes();
+  const remaining: ForgeThemeDefinition[] = [];
+  let found = false;
+  for (let i = 0; i < userThemes.length; i++) {
+    if (userThemes[i].id === themeId) {
+      found = true;
+      continue;
+    }
+    remaining.push(userThemes[i]);
+  }
+  if (!found) {
+    throw new Error("This color theme is not installed.");
+  }
+  activeConfigClient().set(FORGE_USER_THEMES_KEY, roundTripThemes(remaining));
+
+  const customizations = readThemeCustomizations();
+  if (customizations[themeId]) {
+    delete customizations[themeId];
+    activeConfigClient().set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
+  }
+
+  const byGame = getThemeByGame();
+  const remapped: ForgeThemeByGame = { ...byGame };
+  if (remapped.KOTOR === themeId) {
+    remapped.KOTOR = DEFAULT_THEME_BY_GAME.KOTOR;
+  }
+  if (remapped.TSL === themeId) {
+    remapped.TSL = DEFAULT_THEME_BY_GAME.TSL;
+  }
+  if (remapped.KOTOR !== byGame.KOTOR || remapped.TSL !== byGame.TSL) {
+    activeConfigClient().set(FORGE_THEME_BY_GAME_KEY, remapped);
+  }
+
+  const nextId = getThemeIdForGame();
+  if (designerPreviewActive) {
+    if (designerPreviewThemeId === themeId) {
+      designerPreviewThemeId = nextId;
+    }
+    applyForgeTheme(designerPreviewThemeId || nextId);
+  } else if (appliedThemeId === themeId) {
+    applyForgeTheme(nextId);
+  }
+  return nextId;
+}
+
 export function colorToPickerValue(value: string): string {
   const hex = rgbToHex(value);
   return hex || "#808080";
@@ -686,6 +748,15 @@ export function slugifyThemeName(name: string): string {
 export function forgeThemeFileName(name: string): string {
   return `${slugifyThemeName(name)}.forge-theme.json`;
 }
+
+/**
+ * File System Access picker extensions may only be "." plus A–Z / 0–9.
+ * Keep suggesting `*.forge-theme.json`; the dialog matches on the trailing `.json`.
+ */
+const FORGE_THEME_FILE_PICKER_TYPES = [{
+  description: "Forge Color Theme",
+  accept: { "application/json": [".json"] },
+}];
 
 export function serializeForgeThemeFile(theme: ResolvedForgeTheme | ForgeThemeDefinition): ForgeThemeFile {
   return {
@@ -803,10 +874,7 @@ export async function exportForgeThemeToFile(themeId?: ForgeThemeId): Promise<bo
     if (typeof window !== "undefined" && typeof window.showSaveFilePicker === "function") {
       const handle = await window.showSaveFilePicker({
         suggestedName,
-        types: [{
-          description: "Forge Color Theme",
-          accept: { "application/json": [".json", ".forge-theme.json"] },
-        }],
+        types: FORGE_THEME_FILE_PICKER_TYPES,
       });
       const writable = await handle.createWritable();
       await writable.write(bytes);
@@ -847,10 +915,7 @@ export async function installForgeThemeFromFile(apply = true): Promise<ForgeThem
     }
     const handles = await window.showOpenFilePicker({
       multiple: false,
-      types: [{
-        description: "Forge Color Theme",
-        accept: { "application/json": [".json", ".forge-theme.json"] },
-      }],
+      types: FORGE_THEME_FILE_PICKER_TYPES,
     });
     const handle = handles && handles[0];
     if (!handle) {
@@ -871,7 +936,7 @@ function pickThemeFileFallback(): Promise<string> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".json,.forge-theme.json,application/json";
+    input.accept = ".json,application/json";
     input.onchange = () => {
       const file = input.files && input.files[0];
       if (!file) {
