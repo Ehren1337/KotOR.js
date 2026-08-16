@@ -34,6 +34,7 @@ import { TabUTSEditorState } from "@/apps/forge/states/tabs/TabUTSEditorState";
 import { TabUTTEditorState } from "@/apps/forge/states/tabs/TabUTTEditorState";
 import { TabUTWEditorState } from "@/apps/forge/states/tabs/TabUTWEditorState";
 import { TabLIPEditorState } from "@/apps/forge/states/tabs/tab-lip-editor/TabLIPEditorState";
+import { TabImageViewerState } from "@/apps/forge/states/tabs/TabImageViewerState";
 import { TabState } from "@/apps/forge/states/tabs/TabState";
 import { tabCanCompile, tabCanSave } from "@/apps/forge/commands/editorCommandGuards";
 import * as KotOR from "@/apps/forge/KotOR";
@@ -236,6 +237,14 @@ export function registerForgeCommands(): void {
     category: "File",
     keywords: ["lipsync", "phoneme"],
     run: () => ForgeState.tabManager.addTab(new TabLIPEditorState()),
+  });
+
+  registerCommand({
+    id: "forge.file.new.image",
+    title: "New Texture (.tga)",
+    category: "File",
+    keywords: ["texture", "tga", "tpc", "image"],
+    run: () => addUntitled(TabImageViewerState, "untitled", KotOR.ResourceTypes.tga),
   });
 
   registerCommand({
