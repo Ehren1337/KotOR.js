@@ -6,6 +6,7 @@ import { LayoutContainerProvider } from "@/apps/forge/context/LayoutContainerCon
 import { MenuBar, type MenuItem } from "@/apps/forge/components/common/MenuBar";
 import { useContextMenu } from "@/apps/forge/components/common/ContextMenu";
 import { ForgeButton, ForgeInput } from "@/apps/forge/components/ui";
+import { executeCommand, isCommandEnabled } from "@/apps/forge/commands/forgeCommands";
 import { TabDLGEditorState } from "@/apps/forge/states/tabs/TabDLGEditorState";
 import { dlgTreeRowId, findDlgTreePath } from "@/apps/forge/dlg/dlgOutline";
 import { formatDlgNodeLine } from "@/apps/forge/dlg/dlgLocString";
@@ -215,8 +216,8 @@ export const TabDLGEditor = function (props: BaseTabProps) {
     {
       label: "Edit",
       children: [
-        { label: "Undo", shortcut: "Ctrl+Z", onClick: () => { tab.undo(); bump(); }, disabled: !tab.canUndo },
-        { label: "Redo", shortcut: "Ctrl+Y", onClick: () => { tab.redo(); bump(); }, disabled: !tab.canRedo },
+        { label: "Undo", shortcut: "Ctrl+Z", onClick: () => { void executeCommand("forge.edit.undo"); }, disabled: !isCommandEnabled("forge.edit.undo") },
+        { label: "Redo", shortcut: "Ctrl+Y", onClick: () => { void executeCommand("forge.edit.redo"); }, disabled: !isCommandEnabled("forge.edit.redo") },
         { separator: true },
         { label: "Add Entry", onClick: () => beginAdd(undefined, "entry") },
         {

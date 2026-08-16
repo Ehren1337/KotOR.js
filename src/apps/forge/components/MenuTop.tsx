@@ -2,6 +2,7 @@ import React, { useState, useCallback, memo } from "react";
 import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { MenuTopState } from "@/apps/forge/states/MenuTopState";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
+import { TabState } from "@/apps/forge/states/tabs/TabState";
 import { MenuBar, ForgeMenuItem } from "@/apps/forge/components/common/MenuBar";
 import "@/apps/forge/commands/registerForgeCommands";
 
@@ -24,14 +25,40 @@ export const MenuTop = memo(function MenuTop(props: MenuTopProps = {}) {
 
   useEffectOnce(() => {
     setItems([...MenuTopState.items]);
+    let historyTab: TabState | undefined;
+
+    const unbindHistoryTab = () => {
+      if (!historyTab) {
+        return;
+      }
+      historyTab.removeEventListener('onHistoryChanged', refresh);
+      historyTab = undefined;
+    };
+
+    const bindHistoryTab = () => {
+      const tab = ForgeState.tabManager?.currentTab;
+      if (historyTab === tab) {
+        return;
+      }
+      unbindHistoryTab();
+      historyTab = tab;
+      tab?.addEventListener('onHistoryChanged', refresh);
+    };
+
+    const refreshTabs = () => {
+      bindHistoryTab();
+      refresh();
+    };
+
     ForgeState.addEventListener('onRecentFilesUpdated', refresh);
     ForgeState.addEventListener('onRecentProjectsUpdated', refresh);
     ForgeState.addEventListener('onExplorerPaneToggle', refresh);
     MenuTopState.addEventListener('onMenuTopItemsUpdated', onMenuTopItemsUpdated);
     const manager = ForgeState.tabManager;
-    manager?.addEventListener('onTabShow', refresh);
-    manager?.addEventListener('onTabAdded', refresh);
-    manager?.addEventListener('onTabRemoved', refresh);
+    manager?.addEventListener('onTabShow', refreshTabs);
+    manager?.addEventListener('onTabAdded', refreshTabs);
+    manager?.addEventListener('onTabRemoved', refreshTabs);
+    bindHistoryTab();
     refresh();
 
     return () => {
@@ -39,9 +66,10 @@ export const MenuTop = memo(function MenuTop(props: MenuTopProps = {}) {
       ForgeState.removeEventListener('onRecentProjectsUpdated', refresh);
       ForgeState.removeEventListener('onExplorerPaneToggle', refresh);
       MenuTopState.removeEventListener('onMenuTopItemsUpdated', onMenuTopItemsUpdated);
-      manager?.removeEventListener('onTabShow', refresh);
-      manager?.removeEventListener('onTabAdded', refresh);
-      manager?.removeEventListener('onTabRemoved', refresh);
+      manager?.removeEventListener('onTabShow', refreshTabs);
+      manager?.removeEventListener('onTabAdded', refreshTabs);
+      manager?.removeEventListener('onTabRemoved', refreshTabs);
+      unbindHistoryTab();
     };
   });
 

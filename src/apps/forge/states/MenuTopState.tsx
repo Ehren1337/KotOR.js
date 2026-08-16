@@ -172,8 +172,8 @@ export class MenuTopState {
       {
         label: 'Edit',
         children: [
-          this.commandItem('forge.edit.undo'),
-          this.commandItem('forge.edit.redo'),
+          this.commandItem('forge.edit.undo', { shortcut: formatKeybinding('Mod+Z') }),
+          this.commandItem('forge.edit.redo', { shortcut: formatKeybinding('Mod+Y') }),
         ],
       },
       {

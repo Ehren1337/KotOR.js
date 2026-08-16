@@ -13,7 +13,7 @@ import { pathParse } from "@/apps/forge/helpers/PathParse";
 declare const dialog: any;
 
 export type TabStateEventListenerTypes =
-  'onTabDestroyed'|'onTabRemoved'|'onTabShow'|'onTabHide'|'onTabNameChange'|'onEditorFileLoad'|'onEditorFileChange'|'onEditorFileSaved'|'onKeyDown'|'onKeyUp'|'onUndoApplied'|'onRedoApplied'|'onCompile'|'onDiffModeChanged'|'onRevealNss'|'onRevealNcs';
+  'onTabDestroyed'|'onTabRemoved'|'onTabShow'|'onTabHide'|'onTabNameChange'|'onEditorFileLoad'|'onEditorFileChange'|'onEditorFileSaved'|'onKeyDown'|'onKeyUp'|'onUndoApplied'|'onRedoApplied'|'onHistoryChanged'|'onCompile'|'onDiffModeChanged'|'onRevealNss'|'onRevealNcs';
 
 export interface TabStateEventListeners {
   onTabDestroyed: Function[],
@@ -28,6 +28,7 @@ export interface TabStateEventListeners {
   onKeyUp: Function[],
   onUndoApplied: Function[],
   onRedoApplied: Function[],
+  onHistoryChanged: Function[],
 }
 
 export class TabState extends EventListenerModel {
@@ -69,6 +70,7 @@ export class TabState extends EventListenerModel {
     if (state === undefined) return;
     this.undoStack.push(state);
     this.redoStack = [];
+    this.processEventListener('onHistoryChanged', []);
   }
 
   /** Return the current state as a snapshot. Override in subclasses. */
@@ -92,6 +94,7 @@ export class TabState extends EventListenerModel {
     this.applyUndoState(snapshot);
     this.suppressUndoCapture = false;
     this.processEventListener('onUndoApplied', [snapshot]);
+    this.processEventListener('onHistoryChanged', []);
   }
 
   redo(): void {
@@ -105,11 +108,13 @@ export class TabState extends EventListenerModel {
     this.applyUndoState(snapshot);
     this.suppressUndoCapture = false;
     this.processEventListener('onRedoApplied', [snapshot]);
+    this.processEventListener('onHistoryChanged', []);
   }
 
   clearUndoHistory(): void {
     this.undoStack = [];
     this.redoStack = [];
+    this.processEventListener('onHistoryChanged', []);
   }
 
   /**
