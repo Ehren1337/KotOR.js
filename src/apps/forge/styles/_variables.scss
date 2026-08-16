@@ -120,7 +120,7 @@ $spacing-xxl: 24px;
 // LAYOUT
 // =============================================================================
 
-$header-height: calc(var(--forge-titlebar-height, 28px) + var(--forge-menubar-height, 22px));
+$header-height: var(--forge-titlebar-height, 32px);
 $border-radius: 2px;
 $border-radius-large: 2px;
 $border-width: 1px;

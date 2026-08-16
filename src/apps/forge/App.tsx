@@ -380,8 +380,9 @@ export const App = (props: any) => {
         onDragOver={onDragOver}
         onDrop={onDrop}
       >
-        <ForgeTitlebar />
-        <MenuTop />
+        <ForgeTitlebar>
+          <MenuTop />
+        </ForgeTitlebar>
         <div id="container" className="forge-workspace">
           <LayoutContainerProvider bindExplorer>
             <LayoutContainer

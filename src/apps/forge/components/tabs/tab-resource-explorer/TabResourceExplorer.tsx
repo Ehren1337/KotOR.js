@@ -4,7 +4,8 @@ import { useEffectOnce } from "@/apps/forge/helpers/UseEffectOnce";
 import { BaseTabProps } from "@/apps/forge/interfaces/BaseTabProps";
 import { FileTypeManager } from "@/apps/forge/FileTypeManager";
 import { EditorFile } from "@/apps/forge/EditorFile";
-import { ForgeProgress, ForgeInput } from "@/apps/forge/components/ui";
+import { ForgeProgress, ForgeInput, ForgeInputGroup } from "@/apps/forge/components/ui";
+import "@/apps/forge/components/tabs/tab-resource-explorer/TabResourceExplorer.scss";
 import { FileBrowserNode } from "@/apps/forge/FileBrowserNode";
 import { ForgeTreeView } from "@/apps/forge/components/treeview/ForgeTreeView";
 import { ResourceListNode } from "@/apps/forge/components/treeview/ResourceListNode";
@@ -332,60 +333,42 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
   }, [visibleItems, onNodeContextMenu, onNodeToggle]);
   
   return (
-    <div className="flex-vertical" style={{
-      position: 'absolute',
-      top: '0px',
-      bottom: '0px',
-      left: '0px',
-      right: '0px',
-    }}>
-      <div className="flex-horizontal" style={{
-        padding: '5px 0',
-      }}>
-        <span style={{padding: '5px'}}>
-          <i className="fa-solid fa-magnifying-glass"></i>
-        </span>
-        <ForgeInput
-          type="search"
-          placeholder="Search"
-          className=""
-          aria-label="Search"
-          onChange={onSearchInput}
-        />
+    <div className="resource-explorer">
+      <div className="resource-explorer__search">
+        <ForgeInputGroup>
+          <ForgeInputGroup.Text>
+            <i className="fa-solid fa-magnifying-glass" />
+          </ForgeInputGroup.Text>
+          <ForgeInput
+            type="search"
+            placeholder="Search"
+            aria-label="Search"
+            onChange={onSearchInput}
+          />
+        </ForgeInputGroup>
       </div>
-      
-      <div style={{
-        display: `${!!loading ? 'block' : 'none'}`, 
-        padding: '5px',
-        width: '100%', 
-        height: '100px',
-      }}>
-        <div style={{}}>
-          <ForgeProgress striped animated={true} value={100} label={`Searching...`} style={{
-            minWidth: '100%',
-            minHeight: '25px',
-          }}/>
+
+      {loading ? (
+        <div className="resource-explorer__progress">
+          <ForgeProgress striped animated={true} value={100} label="Searching..." />
         </div>
-      </div>
-      <div className="scroll-container" style={{ 
-        display: `${!loading ? 'block' : 'none'}`, 
-        width:'100%', 
-        overflow: 'auto',
-      }}>
-        <ForgeTreeView>
-          {resourceListItems}
-        </ForgeTreeView>
-        {resourceList.length > visibleItems.length && (
-          <div style={{ padding: '10px', textAlign: 'center' }}>
-            <button 
-              className="forge-btn forge-btn--sm"
-              onClick={loadMoreItems}
-            >
-              Load More ({resourceList.length - visibleItems.length} remaining)
-            </button>
-          </div>
-        )}
-      </div>
+      ) : (
+        <div className="resource-explorer__tree">
+          <ForgeTreeView>
+            {resourceListItems}
+          </ForgeTreeView>
+          {resourceList.length > visibleItems.length && (
+            <div className="resource-explorer__load-more">
+              <button
+                className="forge-btn forge-btn--sm"
+                onClick={loadMoreItems}
+              >
+                Load More ({resourceList.length - visibleItems.length} remaining)
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {ContextMenuComponent}
     </div>
   );
