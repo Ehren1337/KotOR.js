@@ -647,6 +647,33 @@
   color: var(--forge-text-muted, var(--forge-text));
 }
 
+.dlg-field__label--help {
+  cursor: help;
+  text-decoration: underline dotted color-mix(in srgb, var(--forge-text-muted) 55%, transparent);
+  text-underline-offset: 2px;
+}
+
+.dlg-field .info-bubble-trigger {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dlg-field--stack {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.dlg-stunt-card {
+  border: 1px solid var(--forge-border);
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .dlg-params {
   border: 1px solid var(--forge-border);
   border-radius: 6px;

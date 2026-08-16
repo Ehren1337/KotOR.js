@@ -175,8 +175,12 @@ export function dialogAnimationStoreValue(previous: number, pickedRow: number): 
 }
 
 export function cameraAnimationHint(id: number): string {
-  if (!Number.isFinite(id) || id < 0) {
+  const clip = Math.trunc(id);
+  if (!Number.isFinite(id) || clip < 0 || clip === 10098) {
     return "none";
   }
-  return `cut${String(Math.trunc(id)).padStart(3, "0")}`;
+  if (clip >= 1000 && clip <= 1127) {
+    return `cut${String(clip - 999).padStart(3, "0")}`;
+  }
+  return String(clip);
 }
