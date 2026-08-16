@@ -7,19 +7,20 @@ import { MenuBar, type MenuItem } from "@/apps/forge/components/common/MenuBar";
 import { useContextMenu } from "@/apps/forge/components/common/ContextMenu";
 import { ForgeButton, ForgeInput } from "@/apps/forge/components/ui";
 import { TabDLGEditorState } from "@/apps/forge/states/tabs/TabDLGEditorState";
-import { flattenDlgOutline } from "@/apps/forge/dlg/dlgOutline";
+import { dlgTreeRowId, findDlgTreePath } from "@/apps/forge/dlg/dlgOutline";
 import { formatDlgNodeLine } from "@/apps/forge/dlg/dlgLocString";
 import { searchDlgNodes } from "@/apps/forge/dlg/dlgSearch";
 import { DLGAddNodePicker } from "@/apps/forge/components/tabs/tab-dlg-editor/DLGAddNodePicker";
 import { DLGFocusGraph } from "@/apps/forge/components/tabs/tab-dlg-editor/DLGFocusGraph";
 import { DLGInspector } from "@/apps/forge/components/tabs/tab-dlg-editor/DLGInspector";
+import { DLG_TREE_ROOT, DLGTreeView } from "@/apps/forge/components/tabs/tab-dlg-editor/DLGTreeView";
 import { DLGVirtualRows } from "@/apps/forge/components/tabs/tab-dlg-editor/DLGVirtualRows";
 import type { ForgeDLGNode } from "@/apps/forge/dlg/ForgeDLGTypes";
 
 import "@/apps/forge/components/tabs/tab-dlg-editor/TabDLGEditor.scss";
 
 /**
- * Conversation editor chrome: graph / outline / catalog + inspector.
+ * Conversation editor chrome: graph / tree / catalog + inspector.
  *
  * @file TabDLGEditor.tsx
  * @author KobaltBlu <https://github.com/KobaltBlu>
@@ -31,7 +32,7 @@ export const TabDLGEditor = function (props: BaseTabProps) {
   const [version, setVersion] = useState(0);
   const [query, setQuery] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([DLG_TREE_ROOT]));
   const [walkthrough, setWalkthrough] = useState(false);
   const [crumb, setCrumb] = useState<string[]>([]);
   const [addPicker, setAddPicker] = useState<{ ownerId: string; kind: "entry" | "reply" } | null>(null);
@@ -66,10 +67,39 @@ export const TabDLGEditor = function (props: BaseTabProps) {
     () => searchDlgNodes(dlg, activeQuery, tab.textByNodeId),
     [dlg, activeQuery, version, tab.textByNodeId],
   );
-  const outline = useMemo(
-    () => flattenDlgOutline(dlg, expanded, tab.textByNodeId),
-    [dlg, expanded, version, tab.textByNodeId],
-  );
+
+  useEffect(() => {
+    setExpanded((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      if (!next.has(DLG_TREE_ROOT)) {
+        next.add(DLG_TREE_ROOT);
+        changed = true;
+      }
+      if (selectedId && selectedId !== "root") {
+        const path = findDlgTreePath(dlg, selectedId);
+        for (let i = 0; i < path.length; i++) {
+          if (!next.has(path[i])) {
+            next.add(path[i]);
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [selectedId, tab.viewMode]);
+
+  const toggleTreeRow = (rowId: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) {
+        next.delete(rowId);
+      } else {
+        next.add(rowId);
+      }
+      return next;
+    });
+  };
 
   const select = (id: string | undefined) => {
     tab.select(id);
@@ -208,7 +238,7 @@ export const TabDLGEditor = function (props: BaseTabProps) {
       label: "View",
       children: [
         { label: "Graph", onClick: () => { tab.viewMode = "graph"; bump(); }, checked: tab.viewMode === "graph" },
-        { label: "Outline", onClick: () => { tab.viewMode = "outline"; bump(); }, checked: tab.viewMode === "outline" },
+        { label: "Tree", onClick: () => { tab.viewMode = "tree"; bump(); }, checked: tab.viewMode === "tree" },
         { label: "Catalog", onClick: () => { tab.viewMode = "catalog"; bump(); }, checked: tab.viewMode === "catalog" },
         { separator: true },
         {
@@ -232,7 +262,7 @@ export const TabDLGEditor = function (props: BaseTabProps) {
   const west = (
     <div className="dlg-rail">
       <div className="dlg-rail__modes">
-        {(["graph", "outline", "catalog"] as const).map((mode) => (
+        {(["graph", "tree", "catalog"] as const).map((mode) => (
           <button
             key={mode}
             type="button"
@@ -332,38 +362,31 @@ export const TabDLGEditor = function (props: BaseTabProps) {
           onLayoutChange={(next) => { tab.graphLayout = next; bump(); }}
         />
       ) : null}
-      {tab.viewMode === "outline" ? (
-        <DLGVirtualRows
-          items={outline}
-          rowHeight={32}
-          renderRow={(row) => (
-            <div
-              className={`dlg-outline-row${selectedId === row.nodeId ? " is-selected" : ""}`}
-              style={{ paddingLeft: 8 + row.depth * 14 }}
-            >
-              <button
-                type="button"
-                className="dlg-outline-row__twist"
-                disabled={!row.expandable}
-                onClick={() => {
-                  const next = new Set(expanded);
-                  if (next.has(row.rowId)) next.delete(row.rowId);
-                  else next.add(row.rowId);
-                  setExpanded(next);
-                }}
-              >
-                {row.expandable ? (row.expanded ? "▾" : "▸") : "·"}
-              </button>
-              <button type="button" className="dlg-outline-row__body" onClick={() => select(row.nodeId)}>
-                <span className={`dlg-list-row__kind dlg-list-row__kind--${row.kind}`}>
-                  {row.kind === "reply" ? "R" : "E"}
-                </span>
-                <span>{row.label}</span>
-                {row.shared ? <span className="dlg-chip">shared</span> : null}
-                {row.cycle ? <span className="dlg-chip">cycle</span> : null}
-              </button>
-            </div>
-          )}
+      {tab.viewMode === "tree" ? (
+        <DLGTreeView
+          dlg={dlg}
+          selectedId={selectedId}
+          texts={tab.textByNodeId}
+          expanded={expanded}
+          onToggle={toggleTreeRow}
+          onSelect={select}
+          onRequestAdd={beginAdd}
+          onUnlink={unlink}
+          onDeleteNode={deleteNode}
+          onAddStart={(nodeId) => tab.mutate((d) => { d.addStartingLink(nodeId); })}
+          onExpandStarts={() => {
+            setExpanded((prev) => {
+              const next = new Set(prev);
+              next.add(DLG_TREE_ROOT);
+              for (let i = 0; i < dlg.startingLinks.length; i++) {
+                const link = dlg.startingLinks[i];
+                next.add(dlgTreeRowId("start", link.id, link.targetId));
+              }
+              return next;
+            });
+          }}
+          onCollapseAll={() => setExpanded(new Set([DLG_TREE_ROOT]))}
+          showContextMenu={showContextMenu}
         />
       ) : null}
       {tab.viewMode === "catalog" ? (

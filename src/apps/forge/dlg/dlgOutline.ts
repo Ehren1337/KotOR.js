@@ -44,6 +44,55 @@ function nodeLabel(
   return node.speaker || node.id;
 }
 
+export function dlgNodeTreeLabel(
+  node: ForgeDLGNode | undefined,
+  kind: string,
+  texts?: ReadonlyMap<string, string>,
+): string {
+  return nodeLabel(node, kind, texts);
+}
+
+export function dlgTreeRowId(ownerId: string, linkId: string, targetId: string): string {
+  return `${ownerId}:${linkId}:${targetId}`;
+}
+
+/** First path of expanded row ids from StartingList to a node. */
+export function findDlgTreePath(dlg: ForgeDLG, targetId: string): string[] {
+  if (!targetId || targetId === "root") {
+    return [];
+  }
+  const seen = new Set<string>();
+  type Frame = { links: ForgeDLGLink[]; ownerId: string; path: string[] };
+  const queue: Frame[] = [{ links: dlg.startingLinks, ownerId: "start", path: [] }];
+  while (queue.length) {
+    const frame = queue.shift();
+    if (!frame) {
+      break;
+    }
+    for (let i = 0; i < frame.links.length; i++) {
+      const link = frame.links[i];
+      const rowId = dlgTreeRowId(frame.ownerId, link.id, link.targetId);
+      if (link.targetId === targetId) {
+        return frame.path.concat(rowId);
+      }
+      if (seen.has(link.targetId)) {
+        continue;
+      }
+      seen.add(link.targetId);
+      const node = dlg.getNode(link.targetId);
+      if (!node || !node.links.length) {
+        continue;
+      }
+      queue.push({
+        links: node.links,
+        ownerId: node.id,
+        path: frame.path.concat(rowId),
+      });
+    }
+  }
+  return [];
+}
+
 export function flattenDlgOutline(
   dlg: ForgeDLG,
   expanded: Set<string>,
