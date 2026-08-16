@@ -140,14 +140,24 @@ function revealInTab(tab: NssEditorTabLike, range: NssRange): void {
   }
 }
 
+function isNssFileTab(tab: NssEditorTabLike, resref: string): boolean {
+  const tabResref = String(tab.file?.resref || "").toLowerCase();
+  const tabExt = String(tab.file?.ext || "nss").toLowerCase();
+  return tabResref === resref.toLowerCase() && tabExt === "nss";
+}
+
+function findNssTab(host: NssLanguageHost, resref: string): NssEditorTabLike | undefined {
+  return host.listNssTabs().find((tab) => isNssFileTab(tab, resref));
+}
+
 function waitForTab(host: NssLanguageHost, resref: string, timeoutMs = 4000): Promise<NssEditorTabLike | undefined> {
-  const existing = host.listNssTabs().find((tab) => tab.file?.resref === resref && (tab.file?.ext || "nss") === "nss");
+  const existing = findNssTab(host, resref);
   if (existing?.editor) return Promise.resolve(existing);
 
   return new Promise((resolve) => {
     const start = Date.now();
     const tick = () => {
-      const tab = host.listNssTabs().find((item) => item.file?.resref === resref && (item.file?.ext || "nss") === "nss");
+      const tab = findNssTab(host, resref);
       if (tab?.editor) {
         resolve(tab);
         return;
@@ -163,14 +173,17 @@ function waitForTab(host: NssLanguageHost, resref: string, timeoutMs = 4000): Pr
 }
 
 async function openNssAt(host: NssLanguageHost, resref: string, range: NssRange): Promise<void> {
-  const existing = host.listNssTabs().find((tab) => tab.file?.resref === resref && (tab.file?.ext || "nss") === "nss");
+  const existing = findNssTab(host, resref);
   if (existing) {
     revealInTab(existing, range);
     return;
   }
 
-  const buffer = resref.toLowerCase() === "nwscript" ? host.getNwscriptBuffer() : undefined;
-  host.openNss(resref, buffer);
+  let buffer = resref.toLowerCase() === "nwscript" ? host.getNwscriptBuffer() : undefined;
+  if ((!buffer || !buffer.length) && host.loadNssBuffer) {
+    buffer = await host.loadNssBuffer(resref);
+  }
+  host.openNss(resref, buffer?.length ? buffer : undefined);
   const tab = await waitForTab(host, resref);
   if (tab) {
     revealInTab(tab, range);
@@ -324,7 +337,6 @@ export function registerNssNavigation(host: NssLanguageHost): void {
       const include = includeAtPosition(model, position);
       if (include) {
         const resref = include.resource.replace(/\.nss$/i, "");
-        void openNssAt(host, resref, { start: { line: 1, column: 1 }, end: { line: 1, column: 1 } });
         return [{ uri: nssResourceUri(resref), range: new monacoEditor.Range(1, 1, 1, 1) }];
       }
 
@@ -340,12 +352,6 @@ export function registerNssNavigation(host: NssLanguageHost): void {
         const location = locationForSymbol(model, symbol, host);
         if (location) {
           locations.push(location);
-          if (location.uri.scheme === NSS_SCHEME && location.uri.toString() !== model.uri.toString()) {
-            const resref = resrefFromUri(location.uri);
-            if (resref && symbol.definition) {
-              void openNssAt(host, resref, symbol.definition.selectionRange);
-            }
-          }
         }
       }
       return locations;

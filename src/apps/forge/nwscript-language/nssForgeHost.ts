@@ -9,7 +9,8 @@
  */
 
 import { FileTypeManager } from "@/apps/forge/FileTypeManager";
-import { resolveIncludesForNss } from "@/apps/forge/helpers/ForgeNWScriptCompile";
+import { loadNssSourceBuffer, resolveIncludesForNss } from "@/apps/forge/helpers/ForgeNWScriptCompile";
+import { normalizeNssIncludeResref } from "@/apps/forge/helpers/nssIncludeResref";
 import { ProjectFileSystem } from "@/apps/forge/ProjectFileSystem";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { ResourceTypes } from "@/resource/ResourceTypes";
@@ -66,13 +67,21 @@ export function createForgeNssLanguageHost(): NssLanguageHost {
 
     openNss: (resref: string, buffer?: Uint8Array) => {
       FileTypeManager.onOpenFile({
-        resref,
+        resref: normalizeNssIncludeResref(resref) || resref,
         reskey: ResourceTypes.nss,
         buffer,
       });
     },
 
     getNwscriptBuffer: () => ForgeState.nwscript_nss,
+
+    loadNssBuffer: async (resref: string) => {
+      try {
+        return await loadNssSourceBuffer(resref);
+      } catch {
+        return undefined;
+      }
+    },
 
     writeProjectFile: async (path: string, text: string) => {
       try {

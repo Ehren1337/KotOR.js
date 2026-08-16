@@ -8,6 +8,7 @@ import {
   compiledNcsPathForProjectNss,
   normalizeProjectRelativePath,
 } from "@/apps/forge/helpers/forgeNcsCompilePaths";
+import { collectNssIncludeResrefs, normalizeNssIncludeResref } from "@/apps/forge/helpers/nssIncludeResref";
 
 export {
   COMPILED_DIR,
@@ -17,45 +18,175 @@ export {
   normalizeProjectRelativePath,
 } from "@/apps/forge/helpers/forgeNcsCompilePaths";
 
+export { collectNssIncludeResrefs, normalizeNssIncludeResref } from "@/apps/forge/helpers/nssIncludeResref";
+
+const NSS_DECODER = new TextDecoder();
+
+function decodeNssBuffer(buffer?: Uint8Array | null): string | undefined {
+  if (!buffer || !buffer.length) return undefined;
+  return NSS_DECODER.decode(buffer);
+}
+
+function findNssKeyEntry(resref: string) {
+  const keyTable = KotOR.KEYManager?.Key;
+  if (!keyTable) return undefined;
+  const nssType = KotOR.ResourceTypes.nss;
+  const lowered = resref.toLowerCase();
+  return (
+    keyTable.getFileKey(resref, nssType)
+    ?? keyTable.getFileKey(lowered, nssType)
+    ?? keyTable.keys?.find((key: { resRef?: string; resType?: number }) => {
+      return key.resType === nssType && String(key.resRef || "").trim().toLowerCase() === lowered;
+    })
+  );
+}
+
+function nssSourceFromOpenTabs(resref: string): string | undefined {
+  const tabs = ForgeState.tabManager?.tabs || [];
+  for (const tab of tabs) {
+    const file = (tab as any)?.file;
+    if (!file) continue;
+    const ext = String(file.ext || "nss").toLowerCase();
+    if (ext !== "nss") continue;
+    if (String(file.resref || "").toLowerCase() !== resref) continue;
+    const text = (tab as any).editor?.getModel?.()?.getValue?.() ?? (tab as any).code;
+    if (typeof text === "string" && text.length) return text;
+  }
+  return undefined;
+}
+
+async function nssBufferFromProject(
+  resref: string,
+  projectIndex?: Map<string, string>,
+): Promise<Uint8Array | undefined> {
+  if (!ProjectFileSystem.rootDirectoryPath && !ProjectFileSystem.rootDirectoryHandle) {
+    return undefined;
+  }
+  const index = projectIndex ?? await indexProjectNssFiles();
+  const rel = index.get(resref);
+  if (!rel) return undefined;
+  try {
+    const buffer = await ProjectFileSystem.readFile(rel);
+    return buffer?.length ? buffer : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function indexProjectNssFiles(): Promise<Map<string, string>> {
+  const index = new Map<string, string>();
+  if (!ProjectFileSystem.rootDirectoryPath && !ProjectFileSystem.rootDirectoryHandle) {
+    return index;
+  }
+  let entries: string[] = [];
+  try {
+    entries = await ProjectFileSystem.readdir("", { recursive: true });
+  } catch {
+    return index;
+  }
+  for (const entry of entries) {
+    const posix = String(entry || "").replace(/\\/g, "/");
+    const base = posix.split("/").pop() || "";
+    if (!base.toLowerCase().endsWith(".nss")) continue;
+    const resref = normalizeNssIncludeResref(base);
+    if (resref && !index.has(resref)) index.set(resref, entry);
+  }
+  return index;
+}
+
+async function nssBufferFromOverride(resref: string): Promise<Uint8Array | undefined> {
+  const filepath = path.join("Override", `${resref}.nss`);
+  try {
+    if (!(await KotOR.GameFileSystem.exists(filepath))) return undefined;
+    const buffer = await KotOR.GameFileSystem.readFile(filepath);
+    return buffer?.length ? buffer : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function nssBufferFromArchives(resref: string): Promise<Uint8Array | undefined> {
+  try {
+    const fromLoader = await KotOR.ResourceLoader.loadResource(KotOR.ResourceTypes.nss, resref);
+    if (fromLoader?.length) return fromLoader;
+  } catch {
+    // KEY lookups are case-sensitive; fall through to a case-insensitive BIF index scan.
+  }
+
+  const key = findNssKeyEntry(resref);
+  if (!key) return undefined;
+  try {
+    const buffer = await KotOR.KEYManager.Key.getFileBuffer(key);
+    return buffer?.length ? buffer : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
- * Resolve #include directives the same way the script editor does (via KEY/archives).
+ * Load an NSS buffer: open editor, project, Override, then KEY/BIF archives.
+ */
+export async function loadNssSourceBuffer(
+  resref: string,
+  projectIndex?: Map<string, string>,
+): Promise<Uint8Array | undefined> {
+  const normalized = normalizeNssIncludeResref(resref);
+  if (!normalized) return undefined;
+
+  const fromTab = nssSourceFromOpenTabs(normalized);
+  if (fromTab != null) return new TextEncoder().encode(fromTab);
+
+  const fromProject = await nssBufferFromProject(normalized, projectIndex);
+  if (fromProject) return fromProject;
+
+  const fromOverride = await nssBufferFromOverride(normalized);
+  if (fromOverride) return fromOverride;
+
+  if (normalized === "nwscript" && ForgeState.nwscript_nss?.length) {
+    return ForgeState.nwscript_nss;
+  }
+
+  return nssBufferFromArchives(normalized);
+}
+
+/**
+ * Resolve #include directives from project / Override first, KEY/BIF archives as fallback.
  */
 export async function resolveIncludesForNss(
   code: string,
   includeMap: Map<string, string> = new Map()
 ): Promise<Map<string, string>> {
-  const visited = new Set<string>();
+  const resolved = new Map<string, string>();
+  for (const [raw, source] of includeMap) {
+    const resref = normalizeNssIncludeResref(raw);
+    if (resref && !resolved.has(resref)) resolved.set(resref, source);
+  }
 
-  const loadInclude = async (resref: string) => {
+  const visited = new Set<string>();
+  const projectIndex = await indexProjectNssFiles();
+
+  const loadInclude = async (rawResref: string) => {
+    const resref = normalizeNssIncludeResref(rawResref);
     if (!resref || visited.has(resref)) return;
     visited.add(resref);
 
-    const key = KotOR.KEYManager.Key.getFileKey(resref, KotOR.ResourceTypes.nss);
-    if (!key) return;
-    const buffer = await KotOR.KEYManager.Key.getFileBuffer(key);
-    if (!buffer) return;
-
-    const textDecoder = new TextDecoder();
-    const source = textDecoder.decode(buffer);
-
-    const nestedIncludes = [...source.matchAll(/#include\s*"?([\w\.]+)"?/g)];
-    for (const m of nestedIncludes) {
-      const nestedResref = m[1];
-      if (nestedResref && !includeMap.has(nestedResref)) await loadInclude(nestedResref);
+    let source = resolved.get(resref);
+    if (source == null) {
+      source = decodeNssBuffer(await loadNssSourceBuffer(resref, projectIndex));
+      if (source == null) return;
+      resolved.set(resref, source);
     }
 
-    if (!includeMap.has(resref)) {
-      includeMap.set(resref, source);
+    for (const nestedResref of collectNssIncludeResrefs(source)) {
+      if (!visited.has(nestedResref)) await loadInclude(nestedResref);
     }
   };
 
-  const rootIncludes = [...code.matchAll(/#include\s*"?([\w\.]+)"?/g)];
-  for (const m of rootIncludes) {
-    const resref = m[1];
-    if (resref && !includeMap.has(resref)) await loadInclude(resref);
+  for (const resref of collectNssIncludeResrefs(code)) {
+    await loadInclude(resref);
   }
 
-  return includeMap;
+  return resolved;
 }
 
 export type CompileNssSourceResult = {
