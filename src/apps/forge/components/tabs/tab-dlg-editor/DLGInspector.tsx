@@ -1,12 +1,18 @@
 ﻿import React, { useState } from "react";
 import { CExoLocStringEditor } from "@/apps/forge/components/CExoLocStringEditor";
 import { ForgeCheckbox } from "@/apps/forge/components/forge-checkbox/forge-checkbox";
+import { ResRefInput } from "@/apps/forge/components/resref-input/ResRefInput";
 import { ScriptResRefInput } from "@/apps/forge/components/script-resref-input/ScriptResRefInput";
-import { ForgeButton, ForgeInput, ForgeSelect } from "@/apps/forge/components/ui";
+import { ForgeButton, ForgeColorField, ForgeInput, ForgeSelect, ForgeTwoDAIndexField } from "@/apps/forge/components/ui";
 import { isTslForgeGame } from "@/apps/forge/dlg/dlgGame";
 import { formatDlgNodeLine } from "@/apps/forge/dlg/dlgLocString";
 import type { ForgeDLG } from "@/apps/forge/dlg/ForgeDLG";
-import type { ForgeDLGLink, ForgeDLGNode, ForgeDLGScriptParams } from "@/apps/forge/dlg/ForgeDLGTypes";
+import { DLG_DELAY_UNSET, type ForgeDLGLink, type ForgeDLGNode, type ForgeDLGScriptParams } from "@/apps/forge/dlg/ForgeDLGTypes";
+import {
+  cameraAnimationHint,
+  dialogAnimationRowIndex,
+  dialogAnimationStoreValue,
+} from "@/apps/forge/helpers/twoDAIndexOptions";
 import { TabDLGEditorState } from "@/apps/forge/states/tabs/TabDLGEditorState";
 
 /**
@@ -27,10 +33,26 @@ const CAMERA_ANGLES = [
   "Placeable",
 ];
 
-function FieldRow(props: { label: string; children: React.ReactNode }) {
+const FADE_TYPES = [
+  { value: 0, label: "0 · None" },
+  { value: 1, label: "1 · Instant out" },
+  { value: 2, label: "2 · Instant in" },
+  { value: 3, label: "3 · Timed in" },
+  { value: 4, label: "4 · Timed out" },
+];
+
+const CAM_VID_SENTINELS = [
+  { value: -1, label: "None / inherit" },
+  { value: -2, label: "Disable" },
+];
+
+const PLOT_SENTINELS = [{ value: -1, label: "None" }];
+const ALIEN_VO_SENTINELS = [{ value: 0, label: "None" }];
+
+function FieldRow(props: { label: string; title?: string; children: React.ReactNode }) {
   return (
     <div className="dlg-field">
-      <label className="dlg-field__label">{props.label}</label>
+      <label className="dlg-field__label" title={props.title}>{props.label}</label>
       <div className="dlg-field__ctrl">{props.children}</div>
     </div>
   );
@@ -55,6 +77,57 @@ function TextInput(props: { value: string; onChange: (s: string) => void; maxLen
       value={props.value || ""}
       onChange={(e) => props.onChange(e.target.value)}
     />
+  );
+}
+
+function UnsetNumberField(props: {
+  value: number;
+  unset: number;
+  unsetLabel: string;
+  onChange: (n: number) => void;
+  step?: number;
+  unsigned?: boolean;
+}) {
+  const isUnset = props.value === props.unset;
+  return (
+    <div className="dlg-unset-number">
+      <ForgeCheckbox
+        label={props.unsetLabel}
+        value={isUnset}
+        onChange={(v) => props.onChange(v ? props.unset : 0)}
+      />
+      {!isUnset ? (
+        <NumInput
+          value={props.value}
+          step={props.step}
+          onChange={(n) => props.onChange(props.unsigned ? (n >>> 0) : n)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function SoundExistsField(props: { value: number; onChange: (n: number) => void }) {
+  const flags = props.value & 0xff;
+  return (
+    <div className="dlg-sound-exists">
+      <div className="dlg-bits" title="BYTE flags. Default 0x80; alien VO sets bits 0–1 (|= 3).">
+        {Array.from({ length: 8 }, (_, bit) => (
+          <label key={bit} className="dlg-bits__item">
+            <input
+              type="checkbox"
+              checked={!!(flags & (1 << bit))}
+              onChange={(e) => {
+                const next = e.target.checked ? (flags | (1 << bit)) : (flags & ~(1 << bit));
+                props.onChange(next & 0xff);
+              }}
+            />
+            {bit}
+          </label>
+        ))}
+      </div>
+      <span className="dlg-field__hint">0x{flags.toString(16).padStart(2, "0")} · default 0x80; alien VO |= 3</span>
+    </div>
   );
 }
 
@@ -99,12 +172,12 @@ function LinkEditor(props: {
         >
           {targets.map((n) => (
             <option key={n.id} value={n.id}>
-              {n.id} Â· {formatDlgNodeLine(n, tab.textByNodeId).slice(0, 40) || n.speaker || wantKind}
+              {n.id} · {formatDlgNodeLine(n, tab.textByNodeId).slice(0, 40) || n.speaker || wantKind}
             </option>
           ))}
         </ForgeSelect>
-        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, -1); })}>â†‘</ForgeButton>
-        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, 1); })}>â†“</ForgeButton>
+        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, -1); })}>↑</ForgeButton>
+        <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.reorderLink(ownerId, link.id, 1); })}>↓</ForgeButton>
         <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.removeLink(link.id); })}>Remove</ForgeButton>
       </div>
       <FieldRow label="Active">
@@ -155,25 +228,58 @@ function RootInspector(props: { tab: TabDLGEditorState; dlg: ForgeDLG; showK2: b
           <option value={1}>Computer</option>
         </ForgeSelect>
       </FieldRow>
-      <FieldRow label="Computer type"><NumInput value={dlg.computerType} onChange={(n) => set("computerType", n)} /></FieldRow>
+      <FieldRow label="Computer type" title="Index into comptypes.2da (ComputerBackground).">
+        <ForgeTwoDAIndexField
+          table="comptypes"
+          value={dlg.computerType}
+          onChange={(n) => set("computerType", n)}
+        />
+      </FieldRow>
       <FieldRow label="VO_ID"><TextInput value={dlg.voId} onChange={(s) => set("voId", s)} /></FieldRow>
-      <FieldRow label="Camera model"><TextInput value={dlg.cameraModel} onChange={(s) => set("cameraModel", s)} maxLength={16} /></FieldRow>
+      <FieldRow label="Camera model">
+        <ResRefInput kind="mdl" placeholder="Camera MDL" value={dlg.cameraModel} onChange={(e) => set("cameraModel", e.target.value)} />
+      </FieldRow>
       <FieldRow label="End conversation">
         <ScriptResRefInput value={dlg.endConversation} onChange={(e) => set("endConversation", e.target.value)} />
       </FieldRow>
       <FieldRow label="End abort">
         <ScriptResRefInput value={dlg.endConverAbort} onChange={(e) => set("endConverAbort", e.target.value)} />
       </FieldRow>
-      <FieldRow label="Ambient track"><TextInput value={dlg.ambientTrack} onChange={(s) => set("ambientTrack", s)} maxLength={16} /></FieldRow>
+      <FieldRow label="Ambient track">
+        <ResRefInput kind="audio" placeholder="Stream music" value={dlg.ambientTrack} onChange={(e) => set("ambientTrack", e.target.value)} />
+      </FieldRow>
       <ForgeCheckbox label="Skippable" value={!!dlg.skippable} onChange={(v) => set("skippable", v ? 1 : 0)} />
       <ForgeCheckbox label="Animated cut" value={!!dlg.animatedCut} onChange={(v) => set("animatedCut", v ? 1 : 0)} />
       <ForgeCheckbox label="Unequip items" value={!!dlg.unequipItems} onChange={(v) => set("unequipItems", v ? 1 : 0)} />
       <ForgeCheckbox label="Unequip head item" value={!!dlg.unequipHeadItem} onChange={(v) => set("unequipHeadItem", v ? 1 : 0)} />
-      <FieldRow label="DelayEntry"><NumInput value={dlg.delayEntry} onChange={(n) => set("delayEntry", n >>> 0)} /></FieldRow>
-      <FieldRow label="DelayReply"><NumInput value={dlg.delayReply} onChange={(n) => set("delayReply", n >>> 0)} /></FieldRow>
+      <FieldRow label="DelayEntry">
+        <UnsetNumberField
+          value={dlg.delayEntry}
+          unset={DLG_DELAY_UNSET}
+          unsetLabel="Use default (0xFFFFFFFF)"
+          unsigned
+          onChange={(n) => set("delayEntry", n)}
+        />
+      </FieldRow>
+      <FieldRow label="DelayReply">
+        <UnsetNumberField
+          value={dlg.delayReply}
+          unset={DLG_DELAY_UNSET}
+          unsetLabel="Use default (0xFFFFFFFF)"
+          unsigned
+          onChange={(n) => set("delayReply", n)}
+        />
+      </FieldRow>
       {showK2 ? (
         <>
-          <FieldRow label="AlienRaceOwner"><NumInput value={dlg.alienRaceOwner} onChange={(n) => set("alienRaceOwner", n)} /></FieldRow>
+          <FieldRow label="AlienRaceOwner" title="Fallback alienvo.2da row for owner lines.">
+            <ForgeTwoDAIndexField
+              table="alienvo"
+              value={dlg.alienRaceOwner}
+              sentinels={ALIEN_VO_SENTINELS}
+              onChange={(n) => set("alienRaceOwner", n)}
+            />
+          </FieldRow>
           <FieldRow label="PostProcOwner"><NumInput value={dlg.postProcOwner} onChange={(n) => set("postProcOwner", n)} /></FieldRow>
           <ForgeCheckbox label="RecordNoVO" value={!!dlg.recordNoVO} onChange={(v) => set("recordNoVO", v ? 1 : 0)} />
           <ForgeCheckbox label="OldHitCheck" value={!!dlg.oldHitCheck} onChange={(v) => set("oldHitCheck", v ? 1 : 0)} />
@@ -183,7 +289,7 @@ function RootInspector(props: { tab: TabDLGEditorState; dlg: ForgeDLG; showK2: b
       {dlg.stuntList.map((stunt, i) => (
         <div key={i} className="dlg-inline-row">
           <TextInput value={stunt.participant} onChange={(s) => tab.mutate(() => { dlg.stuntList[i].participant = s; })} />
-          <TextInput value={stunt.stuntModel} onChange={(s) => tab.mutate(() => { dlg.stuntList[i].stuntModel = s; })} maxLength={16} />
+          <ResRefInput kind="mdl" placeholder="Stunt MDL" value={stunt.stuntModel} onChange={(e) => tab.mutate(() => { dlg.stuntList[i].stuntModel = e.target.value; })} />
           <ForgeButton type="button" size="sm" onClick={() => tab.mutate(() => { dlg.stuntList.splice(i, 1); })}>Remove</ForgeButton>
         </div>
       ))}
@@ -258,14 +364,33 @@ function NodeInspector(props: {
             <FieldRow label="Comment"><TextInput value={node.comment} onChange={(s) => patch((n) => { n.comment = s; })} /></FieldRow>
             <ForgeCheckbox label="Unskippable" value={!!node.nodeUnskippable} onChange={(v) => patch((n) => { n.nodeUnskippable = v ? 1 : 0; })} />
             <div className="dlg-params__title">Voice / sound</div>
-            <FieldRow label="VO_ResRef"><TextInput value={node.voResRef} onChange={(s) => patch((n) => { n.voResRef = s; })} maxLength={16} /></FieldRow>
-            <FieldRow label="Sound"><TextInput value={node.sound} onChange={(s) => patch((n) => { n.sound = s; })} maxLength={16} /></FieldRow>
-            <FieldRow label="SoundExists"><NumInput value={node.soundExists} onChange={(n) => patch((node) => { node.soundExists = n; })} /></FieldRow>
+            <FieldRow label="VO_ResRef">
+              <ResRefInput kind="wav" placeholder="VO wav" value={node.voResRef} onChange={(e) => patch((n) => { n.voResRef = e.target.value; })} />
+            </FieldRow>
+            <FieldRow label="Sound">
+              <ResRefInput kind="wav" placeholder="Sound wav" value={node.sound} onChange={(e) => patch((n) => { n.sound = e.target.value; })} />
+            </FieldRow>
+            <FieldRow label="SoundExists" title="BYTE flags. Default 0x80; alien VO sets bits 0–1 (|= 3).">
+              <SoundExistsField value={node.soundExists} onChange={(n) => patch((node) => { node.soundExists = n; })} />
+            </FieldRow>
             {showK2 ? (
               <>
-                <FieldRow label="Emotion"><NumInput value={node.emotion} onChange={(n) => patch((node) => { node.emotion = n; })} /></FieldRow>
-                <FieldRow label="AlienRaceNode"><NumInput value={node.alienRaceNode} onChange={(n) => patch((node) => { node.alienRaceNode = n; })} /></FieldRow>
-                <FieldRow label="FacialAnim"><NumInput value={node.facialAnimation} onChange={(n) => patch((node) => { node.facialAnimation = n; })} /></FieldRow>
+                <FieldRow label="Emotion" title="emotion.2da LABEL names the alienvo.2da column.">
+                  <ForgeTwoDAIndexField
+                    table="emotion"
+                    value={node.emotion}
+                    onChange={(n) => patch((item) => { item.emotion = n; })}
+                  />
+                </FieldRow>
+                <FieldRow label="AlienRaceNode" title="alienvo.2da row. > 0 always wins when set.">
+                  <ForgeTwoDAIndexField
+                    table="alienvo"
+                    value={node.alienRaceNode}
+                    sentinels={ALIEN_VO_SENTINELS}
+                    onChange={(n) => patch((item) => { item.alienRaceNode = n; })}
+                  />
+                </FieldRow>
+                <FieldRow label="FacialAnim"><NumInput value={node.facialAnimation} onChange={(n) => patch((item) => { item.facialAnimation = n; })} /></FieldRow>
                 <ForgeCheckbox label="RecordVO" value={!!node.recordVO} onChange={(v) => patch((n) => { n.recordVO = v ? 1 : 0; })} />
                 <ForgeCheckbox label="RecordNoVO override" value={!!node.recordNoVOOverride} onChange={(v) => patch((n) => { n.recordNoVOOverride = v ? 1 : 0; })} />
                 <ForgeCheckbox label="VO text changed" value={!!node.voTextChanged} onChange={(v) => patch((n) => { n.voTextChanged = v ? 1 : 0; })} />
@@ -315,33 +440,86 @@ function NodeInspector(props: {
             <FieldRow label="Angle">
               <ForgeSelect value={node.cameraAngle} onChange={(e) => patch((n) => { n.cameraAngle = Number(e.target.value); })}>
                 {CAMERA_ANGLES.map((label, i) => (
-                  <option key={label} value={i}>{i} Â· {label}</option>
+                  <option key={label} value={i}>{i} · {label}</option>
                 ))}
               </ForgeSelect>
             </FieldRow>
-            <FieldRow label="CameraID"><NumInput value={node.cameraID} onChange={(n) => patch((node) => { node.cameraID = n; })} /></FieldRow>
-            <FieldRow label="CameraAnimation"><NumInput value={node.cameraAnimation} onChange={(n) => patch((node) => { node.cameraAnimation = n; })} /></FieldRow>
-            <FieldRow label="CamFieldOfView"><NumInput value={node.camFieldOfView} onChange={(n) => patch((node) => { node.camFieldOfView = n; })} step={0.1} /></FieldRow>
-            <FieldRow label="CamVidEffect"><NumInput value={node.camVidEffect} onChange={(n) => patch((node) => { node.camVidEffect = n; })} /></FieldRow>
+            <FieldRow label="CameraID" title="GIT placeable camera, not 2DA.">
+              <NumInput value={node.cameraID} onChange={(n) => patch((item) => { item.cameraID = n; })} />
+            </FieldRow>
+            <FieldRow label="CameraAnimation" title="CUT clip index on CameraModel (not 2DA).">
+              <div className="dlg-unset-number">
+                <NumInput value={node.cameraAnimation} onChange={(n) => patch((item) => { item.cameraAnimation = n; })} />
+                <span className="dlg-field__hint">{cameraAnimationHint(node.cameraAnimation)}</span>
+              </div>
+            </FieldRow>
+            <FieldRow label="CamFieldOfView">
+              <UnsetNumberField
+                value={node.camFieldOfView}
+                unset={-1}
+                unsetLabel="Default (-1)"
+                step={0.1}
+                onChange={(n) => patch((item) => { item.camFieldOfView = n; })}
+              />
+            </FieldRow>
+            <FieldRow label="CamVidEffect" title="videoeffects.2da. -1 inherit; -2 disable.">
+              <ForgeTwoDAIndexField
+                table="videoeffects"
+                value={node.camVidEffect}
+                sentinels={CAM_VID_SENTINELS}
+                onChange={(n) => patch((item) => { item.camVidEffect = n; })}
+              />
+            </FieldRow>
             <div className="dlg-params__title">Animations</div>
             {node.animations.map((animRow, i) => (
-              <div key={i} className="dlg-inline-row">
-                <NumInput value={animRow.animation} onChange={(n) => patch((node) => { node.animations[i].animation = n; })} />
-                <TextInput value={animRow.participant} onChange={(s) => patch((node) => { node.animations[i].participant = s; })} />
-                <ForgeButton type="button" size="sm" onClick={() => patch((node) => { node.animations.splice(i, 1); })}>Remove</ForgeButton>
+              <div key={i} className="dlg-inline-row dlg-inline-row--anim">
+                <ForgeTwoDAIndexField
+                  table="dialoganimations"
+                  labelColumn="name"
+                  value={dialogAnimationRowIndex(animRow.animation)}
+                  onChange={(n) => patch((item) => {
+                    item.animations[i].animation = dialogAnimationStoreValue(item.animations[i].animation, n);
+                  })}
+                />
+                <TextInput value={animRow.participant} onChange={(s) => patch((item) => { item.animations[i].participant = s; })} />
+                <ForgeButton type="button" size="sm" onClick={() => patch((item) => { item.animations.splice(i, 1); })}>Remove</ForgeButton>
               </div>
             ))}
             <ForgeButton type="button" size="sm" onClick={() => patch((n) => { n.animations.push({ animation: 0, participant: "" }); })}>
               Add animation
             </ForgeButton>
             <div className="dlg-params__title">Fade / delay</div>
-            <FieldRow label="FadeType"><NumInput value={node.fadeType} onChange={(n) => patch((node) => { node.fadeType = n; })} /></FieldRow>
-            <FieldRow label="FadeLength"><NumInput value={node.fadeLength} onChange={(n) => patch((node) => { node.fadeLength = n; })} step={0.01} /></FieldRow>
-            <FieldRow label="FadeDelay"><NumInput value={node.fadeDelay} onChange={(n) => patch((node) => { node.fadeDelay = n; })} step={0.01} /></FieldRow>
-            <FieldRow label="Fade R"><NumInput value={node.fadeColor.r} onChange={(n) => patch((node) => { node.fadeColor.r = n; })} step={0.01} /></FieldRow>
-            <FieldRow label="Fade G"><NumInput value={node.fadeColor.g} onChange={(n) => patch((node) => { node.fadeColor.g = n; })} step={0.01} /></FieldRow>
-            <FieldRow label="Fade B"><NumInput value={node.fadeColor.b} onChange={(n) => patch((node) => { node.fadeColor.b = n; })} step={0.01} /></FieldRow>
-            <FieldRow label="Delay"><NumInput value={node.delay} onChange={(n) => patch((node) => { node.delay = n >>> 0; })} /></FieldRow>
+            <FieldRow label="FadeType">
+              <ForgeSelect value={node.fadeType} onChange={(e) => patch((item) => { item.fadeType = Number(e.target.value); })}>
+                {!FADE_TYPES.some((fade) => fade.value === node.fadeType) ? (
+                  <option value={node.fadeType}>{node.fadeType} · (unknown)</option>
+                ) : null}
+                {FADE_TYPES.map((fade) => (
+                  <option key={fade.value} value={fade.value}>{fade.label}</option>
+                ))}
+              </ForgeSelect>
+            </FieldRow>
+            <FieldRow label="FadeLength"><NumInput value={node.fadeLength} onChange={(n) => patch((item) => { item.fadeLength = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="FadeDelay"><NumInput value={node.fadeDelay} onChange={(n) => patch((item) => { item.fadeDelay = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="Fade color">
+              <ForgeColorField
+                value={node.fadeColor}
+                onChange={(rgb) => patch((item) => {
+                  item.fadeColor.r = rgb.r;
+                  item.fadeColor.g = rgb.g;
+                  item.fadeColor.b = rgb.b;
+                })}
+              />
+            </FieldRow>
+            <FieldRow label="Delay">
+              <UnsetNumberField
+                value={node.delay}
+                unset={DLG_DELAY_UNSET}
+                unsetLabel="Use default (0xFFFFFFFF)"
+                unsigned
+                onChange={(n) => patch((item) => { item.delay = n; })}
+              />
+            </FieldRow>
             {waitBits.map((bit) => (
               <ForgeCheckbox
                 key={bit.bit}
@@ -354,11 +532,18 @@ function NodeInspector(props: {
             ))}
             <div className="dlg-params__title">Quest / plot</div>
             <FieldRow label="Quest"><TextInput value={node.quest} onChange={(s) => patch((n) => { n.quest = s; })} /></FieldRow>
-            <FieldRow label="QuestEntry"><NumInput value={node.questEntry} onChange={(n) => patch((node) => { node.questEntry = n; })} /></FieldRow>
-            <FieldRow label="PlotIndex"><NumInput value={node.plotIndex} onChange={(n) => patch((node) => { node.plotIndex = n; })} /></FieldRow>
-            <FieldRow label="Plot XP %"><NumInput value={node.plotXPPercentage} onChange={(n) => patch((node) => { node.plotXPPercentage = n; })} step={0.01} /></FieldRow>
+            <FieldRow label="QuestEntry"><NumInput value={node.questEntry} onChange={(n) => patch((item) => { item.questEntry = n; })} /></FieldRow>
+            <FieldRow label="PlotIndex" title="plot.2da row for GiveDialogPlotXP.">
+              <ForgeTwoDAIndexField
+                table="plot"
+                value={node.plotIndex}
+                sentinels={PLOT_SENTINELS}
+                onChange={(n) => patch((item) => { item.plotIndex = n; })}
+              />
+            </FieldRow>
+            <FieldRow label="Plot XP %"><NumInput value={node.plotXPPercentage} onChange={(n) => patch((item) => { item.plotXPPercentage = n; })} step={0.01} /></FieldRow>
             {showK2 ? (
-              <FieldRow label="PostProcNode"><NumInput value={node.postProcessNode} onChange={(n) => patch((node) => { node.postProcessNode = n; })} /></FieldRow>
+              <FieldRow label="PostProcNode"><NumInput value={node.postProcessNode} onChange={(n) => patch((item) => { item.postProcessNode = n; })} /></FieldRow>
             ) : null}
           </div>
         ) : null}
@@ -414,7 +599,7 @@ export function DLGInspector(props: {
   return (
     <div className="dlg-inspector">
       <div className="dlg-inspector__banner">
-        {node.kind === "entry" ? "Entry" : "Reply"} Â· {node.id}
+        {node.kind === "entry" ? "Entry" : "Reply"} · {node.id}
       </div>
       <NodeInspector tab={tab} dlg={dlg} node={node} showK2={showK2} onRequestAdd={props.onRequestAdd} />
     </div>

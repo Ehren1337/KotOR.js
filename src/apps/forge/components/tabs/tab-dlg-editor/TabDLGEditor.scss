@@ -598,7 +598,48 @@
   display: grid;
   grid-template-columns: 7.5rem minmax(0, 1fr);
   gap: 8px;
+  align-items: start;
+}
+
+.dlg-field__ctrl {
+  min-width: 0;
+}
+
+.dlg-field__hint {
+  font-size: 0.72rem;
+  color: var(--forge-text-muted, var(--forge-text));
+  white-space: nowrap;
+}
+
+.dlg-unset-number {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dlg-bits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.dlg-bits__item {
+  display: inline-flex;
   align-items: center;
+  gap: 3px;
+  font-size: 0.75rem;
+  color: var(--forge-text-muted, var(--forge-text));
+  cursor: pointer;
+}
+
+.dlg-inline-row--anim {
+  align-items: flex-start;
+}
+
+.dlg-inline-row--anim .forge-twoda-field {
+  flex: 1;
+  min-width: 0;
 }
 
 .dlg-field__label {

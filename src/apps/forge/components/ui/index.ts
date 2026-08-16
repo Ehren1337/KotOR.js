@@ -7,6 +7,10 @@ export { ForgeButtonGroup } from "./ForgeButtonGroup";
 export { ForgeProgress } from "./ForgeProgress";
 export { ForgeSpinner } from "./ForgeSpinner";
 export { ForgeDialog } from "./ForgeDialog";
+export { ForgeTwoDAIndexField } from "./ForgeTwoDAIndexField";
+export type { ForgeTwoDAIndexFieldProps } from "./ForgeTwoDAIndexField";
+export { ForgeColorField } from "./ForgeColorField";
+export type { ForgeColorFieldProps } from "./ForgeColorField";
 export {
   ForgeDropdown,
   ForgeDropdownToggle,
