@@ -118,30 +118,6 @@ function UnsetNumberField(props: {
   );
 }
 
-function SoundExistsField(props: { value: number; onChange: (n: number) => void }) {
-  const flags = props.value & 0xff;
-  return (
-    <div className="dlg-sound-exists">
-      <div className="dlg-bits">
-        {Array.from({ length: 8 }, (_, bit) => (
-          <label key={bit} className="dlg-bits__item">
-            <input
-              type="checkbox"
-              checked={!!(flags & (1 << bit))}
-              onChange={(e) => {
-                const next = e.target.checked ? (flags | (1 << bit)) : (flags & ~(1 << bit));
-                props.onChange(next & 0xff);
-              }}
-            />
-            {bit}
-          </label>
-        ))}
-      </div>
-      <span className="dlg-field__hint">0x{flags.toString(16).padStart(2, "0")}</span>
-    </div>
-  );
-}
-
 function ScriptParamsEditor(props: {
   label: string;
   params: ForgeDLGScriptParams;
@@ -390,9 +366,6 @@ function NodeInspector(props: {
             </FieldRow>
             <FieldRow label="Sound" info={DLG_HELP.sound}>
               <ResRefInput kind="wav" placeholder="Sound wav" value={node.sound} onChange={(e) => patch((n) => { n.sound = e.target.value; })} />
-            </FieldRow>
-            <FieldRow label="SoundExists" info={DLG_HELP.soundExists}>
-              <SoundExistsField value={node.soundExists} onChange={(n) => patch((node) => { node.soundExists = n; })} />
             </FieldRow>
             {showK2 ? (
               <>

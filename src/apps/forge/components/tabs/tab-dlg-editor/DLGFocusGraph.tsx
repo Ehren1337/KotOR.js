@@ -216,16 +216,19 @@ function stackOffsets(count: number, size: number, gap: number): number[] {
 
 function graphGeometry(layout: DLGGraphLayout, inboundCount: number, outboundCount: number): GraphGeometry {
   if (layout === "vertical") {
-    const laneCount = Math.max(inboundCount, outboundCount + 1, 1);
+    const laneCount = Math.max(inboundCount, outboundCount, 1);
+    const addH = 36;
+    const addGap = 12;
     const width = Math.max(CARD_W + 200, laneCount * (CARD_W + ROW_GAP) + 160);
-    const height = CARD_H * 3 + COL_GAP * 2 + 160;
+    const height = CARD_H * 3 + COL_GAP * 2 + addH + addGap + 160;
     const cx = width / 2;
     const cy = height / 2;
     const center = { left: cx - CARD_W / 2, top: cy - CARD_H / 2 };
     const inboundTop = center.top - CARD_H - COL_GAP;
-    const outboundTop = center.top + CARD_H + COL_GAP;
+    const addTop = center.top + CARD_H + addGap;
+    const outboundTop = addTop + addH + COL_GAP;
     const inboundX = stackOffsets(inboundCount, CARD_W, ROW_GAP);
-    const outboundX = stackOffsets(Math.max(outboundCount, 1), CARD_W, ROW_GAP);
+    const outboundX = stackOffsets(outboundCount, CARD_W, ROW_GAP);
     const inbound = inboundX.map((x) => ({ left: cx + x, top: inboundTop }));
     const outbound = outboundX.map((x) => ({ left: cx + x, top: outboundTop }));
     return {
@@ -235,8 +238,8 @@ function graphGeometry(layout: DLGGraphLayout, inboundCount: number, outboundCou
       inbound,
       outbound,
       add: {
-        left: outboundCount ? cx + outboundX[outboundCount - 1] + CARD_W + 8 : center.left,
-        top: outboundTop,
+        left: center.left,
+        top: addTop,
       },
       inLabel: { left: inbound[0]?.left ?? center.left, top: inboundTop - 22 },
       outLabel: { left: (outboundCount ? outbound[0].left : center.left), top: outboundTop - 22 },

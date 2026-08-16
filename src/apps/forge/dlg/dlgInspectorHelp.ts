@@ -16,7 +16,6 @@ export const DLG_HELP = {
   unskippable: "Player cannot skip this line, even when the conversation itself is skippable.",
   voResRef: "Voice-over clip played with this line. If set, that file is used instead of generating a line from alien-voice tables.",
   sound: "Extra sound effect started with this line (separate from spoken VO).",
-  soundExists: "Marks whether spoken audio exists for this line. Bit 0 means a voice file was found. New nodes default with bit 7 on; filling alien voice also sets bits 0 and 1.",
   emotion: "Mood used only to pick a foreign-language / alien voice clip when this line has no VO or extra sound. It does not change talk animations.",
   alienRaceNode: "Which alien-voice table row to use for this line. A value above none always wins. If none and this is an owner line, the conversation's Alien Race Owner is used.",
   facialAnim: "Stored on the line, but the game does not play it. Mouth movement comes from the LIP file that matches the voice clip.",

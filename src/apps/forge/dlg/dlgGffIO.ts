@@ -15,6 +15,7 @@ import {
   type ForgeDLGScriptParams,
 } from "@/apps/forge/dlg/ForgeDLGTypes";
 import { cloneLocString } from "@/apps/forge/dlg/dlgLocString";
+import { inferDlgSoundExists } from "@/apps/forge/dlg/dlgSoundExists";
 
 /**
  * GFF parse/export for ForgeDLG. Does not load NWScript or flatten locstrings.
@@ -389,6 +390,7 @@ function writeNode(
   node: ForgeDLGNode,
   targetIndexMap: Map<string, number>,
   k2: boolean,
+  alienRaceOwner: number,
 ): GFFStruct {
   const struct = new GFFStruct(0);
   const writeK2 = k2 || node.k2Present;
@@ -398,7 +400,7 @@ function writeNode(
   addCExo(struct, "Comment", node.comment);
   addResRef(struct, "VO_ResRef", node.voResRef);
   addResRef(struct, "Sound", node.sound);
-  addByte(struct, "SoundExists", node.soundExists);
+  addByte(struct, "SoundExists", inferDlgSoundExists(node, { k2Present: k2, alienRaceOwner }));
   addResRef(struct, "Script", node.script);
   if (writeK2) {
     addResRef(struct, "Script2", node.script2);
@@ -506,13 +508,13 @@ export function exportDlgGff(doc: ForgeDLGDocument): GFFObject {
 
   const entryList = new GFFField(GFFDataType.LIST, "EntryList");
   for (let i = 0; i < doc.entries.length; i++) {
-    entryList.addChildStruct(writeNode(doc.entries[i], replyIndex, k2));
+    entryList.addChildStruct(writeNode(doc.entries[i], replyIndex, k2, doc.alienRaceOwner));
   }
   root.addField(entryList);
 
   const replyList = new GFFField(GFFDataType.LIST, "ReplyList");
   for (let i = 0; i < doc.replies.length; i++) {
-    replyList.addChildStruct(writeNode(doc.replies[i], entryIndex, k2));
+    replyList.addChildStruct(writeNode(doc.replies[i], entryIndex, k2, doc.alienRaceOwner));
   }
   root.addField(replyList);
 
