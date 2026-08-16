@@ -18,18 +18,21 @@ import {
   ForgeThemeColorGroup,
   ForgeThemeColorKey,
   addForgeThemeChangeListener,
+  beginForgeThemeDesignerPreview,
   colorToPickerValue,
   duplicateForgeTheme,
+  endForgeThemeDesignerPreview,
   exportForgeThemeToFile,
-  getAppliedForgeThemeId,
   getForgeThemeDefinition,
   getThemeByGame,
+  getThemeIdForGame,
   installForgeThemeFromFile,
   listForgeThemes,
   removeForgeThemeChangeListener,
   resetThemeColor,
   resetThemeCustomizations,
   resolveForgeTheme,
+  setForgeThemeDesignerPreview,
   setThemeColor,
   setThemeForGame,
 } from "@/apps/forge/settings/forgeTheme";
@@ -44,27 +47,46 @@ function currentGameSlot(): ForgeGameThemeKey {
 export function AppearanceSettingsPage() {
   const [, setRevision] = useState(0);
   const [tokenQuery, setTokenQuery] = useState("");
+  const [editingId, setEditingId] = useState(() => getThemeIdForGame());
   const bump = () => setRevision((value) => value + 1);
+  const currentSlot = currentGameSlot();
+
+  const previewTheme = (themeId: string) => {
+    setEditingId(themeId);
+    setForgeThemeDesignerPreview(themeId);
+    bump();
+  };
 
   useEffectOnce(() => {
     addForgeThemeChangeListener(bump);
     return () => removeForgeThemeChangeListener(bump);
   });
 
+  useEffect(() => {
+    beginForgeThemeDesignerPreview(getThemeIdForGame());
+    return () => {
+      endForgeThemeDesignerPreview();
+    };
+  }, []);
+
   const themes = listForgeThemes();
   const themeByGame = getThemeByGame();
-  const activeId = getAppliedForgeThemeId() || themeByGame[currentGameSlot()];
-  const resolved = resolveForgeTheme(activeId);
+  const resolved = resolveForgeTheme(editingId);
   const definition = getForgeThemeDefinition(resolved.id);
+  const assignedId = themeByGame[currentSlot];
+  const previewingOtherTheme = resolved.id !== assignedId;
 
   const onGameThemeChange = (slot: ForgeGameThemeKey, themeId: string) => {
-    setThemeForGame(slot, themeId, slot === currentGameSlot());
+    setThemeForGame(slot, themeId, false);
+    if (slot === currentSlot) {
+      previewTheme(themeId);
+      return;
+    }
     bump();
   };
 
   const onDesignerThemeChange = (themeId: string) => {
-    setThemeForGame(currentGameSlot(), themeId, true);
-    bump();
+    previewTheme(themeId);
   };
 
   const onDuplicate = () => {
@@ -76,8 +98,7 @@ export function AppearanceSettingsPage() {
       return;
     }
     const copy = duplicateForgeTheme(resolved.id, name);
-    setThemeForGame(currentGameSlot(), copy.id, true);
-    bump();
+    previewTheme(copy.id);
   };
 
   const onExport = async () => {
@@ -91,15 +112,20 @@ export function AppearanceSettingsPage() {
 
   const onInstall = async () => {
     try {
-      const installed = await installForgeThemeFromFile();
+      const installed = await installForgeThemeFromFile(false);
       if (installed) {
-        bump();
+        previewTheme(installed.id);
       }
     } catch (error) {
       console.error(error);
       const message = error instanceof Error ? error.message : "Could not install this color theme.";
       window.alert(message);
     }
+  };
+
+  const onUseForCurrentGame = () => {
+    setThemeForGame(currentSlot, resolved.id, false);
+    bump();
   };
 
   const visibleTokens = useMemo(() => {
@@ -124,7 +150,7 @@ export function AppearanceSettingsPage() {
     <div className="forge-settings-page">
       <h3 className="forge-settings-page__title">Appearance</h3>
       <p className="forge-settings-page__lead">
-        Choose which color theme each game loads, then customize tokens like VS Code workbench colors.
+        Choose which color theme each game loads. The designer only previews a theme while this page is open; closing Settings restores the active game’s assigned theme.
       </p>
       <SettingRow
         label="Theme for Knights of the Old Republic"
@@ -158,8 +184,9 @@ export function AppearanceSettingsPage() {
           <div>
             <h4 className="forge-theme-designer__title">Color Theme Designer</h4>
             <p className="forge-theme-designer__lead">
-              Editing {resolved.name}
-              {definition.builtIn ? " — changes are saved as customizations" : ""}.
+              Previewing {resolved.name}
+              {definition.builtIn ? " — changes are saved as customizations" : ""}
+              {previewingOtherTheme ? ` — ${currentSlot === "TSL" ? "TSL" : "KotOR"} still loads ${getForgeThemeDefinition(assignedId).name} until you assign this theme.` : ""}.
               Export a .forge-theme.json to share it, or install one from a file.
             </p>
           </div>
@@ -172,6 +199,13 @@ export function AppearanceSettingsPage() {
               {themeOptions}
             </ForgeSelect>
             <ForgeButton size="sm" onClick={onDuplicate}>Duplicate Theme…</ForgeButton>
+            <ForgeButton
+              size="sm"
+              disabled={!previewingOtherTheme}
+              onClick={onUseForCurrentGame}
+            >
+              Use for {currentSlot === "TSL" ? "TSL" : "KotOR"}
+            </ForgeButton>
             <ForgeButton size="sm" onClick={() => { void onExport(); }}>Export Theme…</ForgeButton>
             <ForgeButton size="sm" onClick={() => { void onInstall(); }}>Install Theme…</ForgeButton>
             <ForgeButton size="sm" onClick={() => { resetThemeCustomizations(resolved.id); bump(); }}>

@@ -416,9 +416,49 @@ export function setThemeForGame(gameKey: ForgeGameThemeKey | GameEngineType | st
   const slot = gameKeyToThemeSlot(gameKey);
   const next = { ...getThemeByGame(), [slot]: themeId };
   ConfigClient.set(FORGE_THEME_BY_GAME_KEY, next);
-  if (apply && slot === gameKeyToThemeSlot(ApplicationProfile.GameKey)) {
+  if (apply && !designerPreviewActive && slot === gameKeyToThemeSlot(ApplicationProfile.GameKey)) {
     applyForgeTheme(themeId);
   }
+}
+
+let designerPreviewActive = false;
+let designerPreviewThemeId: ForgeThemeId | null = null;
+
+export function isForgeThemeDesignerPreviewActive(): boolean {
+  return designerPreviewActive;
+}
+
+export function getForgeThemeDesignerPreviewId(): ForgeThemeId | null {
+  return designerPreviewThemeId;
+}
+
+export function beginForgeThemeDesignerPreview(themeId?: ForgeThemeId): ForgeThemeId {
+  designerPreviewActive = true;
+  designerPreviewThemeId = themeId || getThemeIdForGame();
+  applyForgeTheme(designerPreviewThemeId);
+  return designerPreviewThemeId;
+}
+
+export function setForgeThemeDesignerPreview(themeId: ForgeThemeId): void {
+  designerPreviewActive = true;
+  designerPreviewThemeId = themeId;
+  applyForgeTheme(themeId);
+}
+
+export function endForgeThemeDesignerPreview(): void {
+  const wasActive = designerPreviewActive;
+  designerPreviewActive = false;
+  designerPreviewThemeId = null;
+  if (wasActive) {
+    applyForgeTheme(getThemeIdForGame());
+  }
+}
+
+function shouldLiveApplyTheme(themeId: ForgeThemeId): boolean {
+  if (designerPreviewActive) {
+    return themeId === designerPreviewThemeId;
+  }
+  return themeId === getThemeIdForGame();
 }
 
 export function getForgeColorScheme(): ForgeColorScheme {
@@ -507,7 +547,7 @@ export function setThemeColor(themeId: ForgeThemeId, key: ForgeThemeColorKey, va
   const overlay = { ...(customizations[themeId] || {}), [key]: value };
   customizations[themeId] = overlay;
   ConfigClient.set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
-  if (themeId === appliedThemeId || themeId === getThemeIdForGame()) {
+  if (shouldLiveApplyTheme(themeId)) {
     applyForgeTheme(themeId);
   }
 }
@@ -522,7 +562,7 @@ export function resetThemeColor(themeId: ForgeThemeId, key: ForgeThemeColorKey):
     delete customizations[themeId];
   }
   ConfigClient.set(FORGE_THEME_CUSTOMIZATIONS_KEY, customizations);
-  if (themeId === appliedThemeId || themeId === getThemeIdForGame()) {
+  if (shouldLiveApplyTheme(themeId)) {
     applyForgeTheme(themeId);
   }
 }
@@ -545,7 +585,7 @@ export function resetThemeCustomizations(themeId: ForgeThemeId): void {
     ConfigClient.set(FORGE_USER_THEMES_KEY, roundTripThemes(userThemes));
   }
 
-  if (themeId === appliedThemeId || themeId === getThemeIdForGame()) {
+  if (shouldLiveApplyTheme(themeId)) {
     applyForgeTheme(themeId);
   }
 }
@@ -764,7 +804,7 @@ export async function exportForgeThemeToFile(themeId?: ForgeThemeId): Promise<bo
   }
 }
 
-export async function installForgeThemeFromFile(): Promise<ForgeThemeDefinition | null> {
+export async function installForgeThemeFromFile(apply = true): Promise<ForgeThemeDefinition | null> {
   if (typeof window === "undefined") {
     return null;
   }
@@ -775,7 +815,7 @@ export async function installForgeThemeFromFile(): Promise<ForgeThemeDefinition 
       if (!text) {
         return null;
       }
-      return installForgeTheme(text, true);
+      return installForgeTheme(text, apply);
     }
     const handles = await window.showOpenFilePicker({
       multiple: false,
@@ -790,7 +830,7 @@ export async function installForgeThemeFromFile(): Promise<ForgeThemeDefinition 
     }
     const file = await handle.getFile();
     text = await file.text();
-    return installForgeTheme(text, true);
+    return installForgeTheme(text, apply);
   } catch (error) {
     if ((error as { name?: string })?.name === "AbortError") {
       return null;
