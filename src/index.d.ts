@@ -18,6 +18,7 @@ interface ElectronContextBridge {
   close: () => Promise<any>;
   locate_game_directory: (profile: any) => Promise<string>;
   launchProfile: (profile: any) => Promise<any>;
+  openExternal: (src: string, options?: any) => void;
 }
 
 interface DialogContextBridge extends Electron.Dialog {

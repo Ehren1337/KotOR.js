@@ -8,10 +8,8 @@
 
 import { ConfigClient } from "@/utility/ConfigClient";
 
-export type ForgeAccent = "follow-game" | "kotor" | "tsl";
 export type DefaultEditorKind = "native" | "gff" | "hex" | "text";
 
-export const FORGE_ACCENT_KEY = "Forge.accent";
 export const FORGE_DEFAULT_EDITORS_KEY = "Forge.defaultEditors";
 
 export const DEFAULT_EDITOR_LABELS: Record<DefaultEditorKind, string> = {
@@ -21,12 +19,7 @@ export const DEFAULT_EDITOR_LABELS: Record<DefaultEditorKind, string> = {
   text: "Text editor",
 };
 
-const ACCENTS: ForgeAccent[] = ["follow-game", "kotor", "tsl"];
 const EDITOR_KINDS: DefaultEditorKind[] = ["native", "gff", "hex", "text"];
-
-export function isForgeAccent(value: unknown): value is ForgeAccent {
-  return typeof value === "string" && ACCENTS.indexOf(value as ForgeAccent) !== -1;
-}
 
 export function isDefaultEditorKind(value: unknown): value is DefaultEditorKind {
   return typeof value === "string" && EDITOR_KINDS.indexOf(value as DefaultEditorKind) !== -1;
@@ -53,29 +46,6 @@ function readDefaultEditors(): Record<string, DefaultEditorKind> {
     return {};
   }
   return { ...(value as Record<string, DefaultEditorKind>) };
-}
-
-export function getForgeAccent(): ForgeAccent {
-  const value = ConfigClient.get(FORGE_ACCENT_KEY);
-  return isForgeAccent(value) ? value : "follow-game";
-}
-
-export function applyForgeAccent(accent?: ForgeAccent): void {
-  if (typeof document === "undefined" || !document.documentElement) {
-    return;
-  }
-  const value = accent ?? getForgeAccent();
-  if (value === "follow-game") {
-    document.documentElement.removeAttribute("data-forge-accent");
-    return;
-  }
-  document.documentElement.setAttribute("data-forge-accent", value);
-}
-
-export function setForgeAccent(accent: ForgeAccent): void {
-  const next = isForgeAccent(accent) ? accent : "follow-game";
-  ConfigClient.set(FORGE_ACCENT_KEY, next);
-  applyForgeAccent(next);
 }
 
 export function getDefaultEditor(ext: string): DefaultEditorKind {

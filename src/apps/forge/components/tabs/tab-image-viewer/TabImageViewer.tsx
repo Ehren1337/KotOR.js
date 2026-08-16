@@ -13,6 +13,11 @@ import { TXI } from "@/resource/TXI";
 import { OdysseyMaterialBuilder } from "@/three/odyssey/OdysseyMaterialBuilder";
 
 import "@/apps/forge/components/tabs/tab-image-viewer/TabImageViewer.scss";
+import {
+  addForgeThemeChangeListener,
+  getMonacoThemeForLanguage,
+  removeForgeThemeChangeListener,
+} from "@/apps/forge/settings/forgeTheme";
 
 import * as KotOR from "@/apps/forge/KotOR";
 
@@ -41,6 +46,7 @@ export const TabImageViewer = function(props: BaseTabProps){
     lineNumbers: "on",
     fontSize: 12,
   };
+  const [txiTheme, setTxiTheme] = useState(() => getMonacoThemeForLanguage("txi"));
 
   const TXI_DIRECTIVES = new Set([
     "proceduretype","mipmap","filter","defaultwidth","defaultheight","downsamplemin","downsamplemax",
@@ -200,6 +206,12 @@ export const TabImageViewer = function(props: BaseTabProps){
   const onRevertTXI = () => {
     setTxiDraft(txiApplied);
   };
+
+  useEffect(() => {
+    const onTheme = () => setTxiTheme(getMonacoThemeForLanguage("txi"));
+    addForgeThemeChangeListener(onTheme);
+    return () => removeForgeThemeChangeListener(onTheme);
+  }, []);
 
   useEffectOnce(() => {
     const context = preview3DContextRef.current;
@@ -399,7 +411,7 @@ export const TabImageViewer = function(props: BaseTabProps){
             width="100%"
             height="100%"
             language="txi"
-            theme="txi-dark"
+            theme={txiTheme}
             value={txiDraft}
             options={txiEditorOptions}
             onChange={(value) => setTxiDraft(value || "")}

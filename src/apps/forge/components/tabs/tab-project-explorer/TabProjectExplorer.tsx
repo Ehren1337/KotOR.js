@@ -98,7 +98,7 @@ export const TabProjectExplorer = function (props: BaseTabProps) {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({ "": true });
-  const { showContextMenu, ContextMenuComponent } = useContextMenu("dark");
+  const { showContextMenu, ContextMenuComponent } = useContextMenu();
 
   const onResourceContextMenu = useCallback(
     (event: React.MouseEvent, node: FileBrowserNode) => {

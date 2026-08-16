@@ -27,6 +27,7 @@ import {
   createEmptyNssCodeLineMap,
   type NssCodeLineMap,
 } from "@/nwscript/inspect/nssCodeLineMap";
+import { getMonacoThemeForLanguage } from "@/apps/forge/settings/forgeTheme";
 
 export class TabTextEditorState extends TabState {
 
@@ -143,17 +144,7 @@ export class TabTextEditorState extends TabState {
   }
 
   getTheme(): string {
-    const langId = this.getLanguageId();
-    switch(langId){
-      case 'lyt':
-        return 'lyt-dark';
-      case 'txi':
-        return 'txi-dark';
-      case 'nwscript':
-        return 'nwscript-dark';
-      default:
-        return 'vs-dark';
-    }
+    return getMonacoThemeForLanguage(this.getLanguageId());
   }
 
   constructor(options: BaseTabStateOptions = {}){

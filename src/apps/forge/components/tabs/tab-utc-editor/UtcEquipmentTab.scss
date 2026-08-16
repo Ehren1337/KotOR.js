@@ -14,13 +14,13 @@
 .utc-equipment-panel__title {
   font-size: 0.85rem;
   font-weight: 600;
-  color: $text-secondary;
+  color: var(--forge-text-bright);
   margin: 0 0 0.6rem;
 }
 
 .utc-equipment-panel__hint {
   font-size: 0.75rem;
-  color: $text-tertiary;
+  color: var(--forge-text-muted);
   margin: -0.35rem 0 0.6rem;
 }
 
@@ -50,15 +50,15 @@
   position: relative;
   width: 64px;
   height: 64px;
-  background: $bg-primary;
-  border: 2px solid $primary-blue;
+  background: var(--forge-bg);
+  border: 2px solid var(--forge-accent);
   border-radius: 8px;
   overflow: hidden;
   cursor: pointer;
   box-sizing: border-box;
 
   &:hover {
-    border-color: $primary-blue-light;
+    border-color: var(--forge-accent-hover);
   }
 
   .iSlot {
@@ -79,10 +79,10 @@
 }
 
 .utc-equip-slot--empty .utc-equip-slot__icon {
-  border-color: $border-primary;
+  border-color: var(--forge-border);
 
   &:hover {
-    border-color: $primary-blue;
+    border-color: var(--forge-accent);
   }
 }
 
@@ -92,7 +92,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: $text-quaternary;
+  color: var(--forge-text-disabled);
   font-size: 1.25rem;
   pointer-events: none;
 }
@@ -112,14 +112,14 @@
 
 .utc-equip-slot__label {
   font-size: 0.7rem;
-  color: $text-tertiary;
+  color: var(--forge-text-muted);
   text-align: center;
   line-height: 1.2;
 }
 
 .utc-equip-slot__name {
   font-size: 0.68rem;
-  color: $text-primary;
+  color: var(--forge-text);
   text-align: center;
   max-width: 88px;
   overflow: hidden;
@@ -144,7 +144,7 @@
 .utc-equipment-bag__empty {
   text-align: center;
   font-style: italic;
-  color: $text-tertiary;
+  color: var(--forge-text-muted);
   padding: 1.25rem 0.5rem;
   font-size: 0.8rem;
 }
@@ -163,8 +163,8 @@
   align-items: center;
   gap: 8px;
   padding: 4px 6px;
-  background: $bg-secondary;
-  border: 1px solid $border-primary;
+  background: var(--forge-bg-elevated);
+  border: 1px solid var(--forge-border);
   border-radius: 4px;
 }
 
@@ -172,8 +172,8 @@
   width: 32px;
   height: 32px;
   flex: none;
-  background: $bg-primary;
-  border: 1px solid $border-primary;
+  background: var(--forge-bg);
+  border: 1px solid var(--forge-border);
   border-radius: 3px;
   overflow: hidden;
 
@@ -202,7 +202,7 @@
 
 .utc-equipment-bag__name {
   font-size: 0.75rem;
-  color: $text-secondary;
+  color: var(--forge-text-bright);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

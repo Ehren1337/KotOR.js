@@ -26,7 +26,12 @@ export function ModalSettings() {
     setShow(false);
     setQuery("");
   };
-  const handleShow = () => setShow(true);
+  const handleShow = (pageId?: string) => {
+    if (typeof pageId === "string" && pageId) {
+      setActiveId(pageId);
+    }
+    setShow(true);
+  };
 
   useEffectOnce(() => {
     ModalSettingsState.AddEventListener("onShow", handleShow);

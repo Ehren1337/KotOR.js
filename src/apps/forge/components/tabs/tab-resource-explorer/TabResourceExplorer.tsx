@@ -27,7 +27,7 @@ export const TabResourceExplorer = function(props: TabResourceExplorerProps){
   const [visibleItems, setVisibleItems] = useState<FileBrowserNode[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const ITEMS_PER_PAGE = 100; // Virtual scrolling chunk size
-  const { showContextMenu, ContextMenuComponent } = useContextMenu('dark');
+  const { showContextMenu, ContextMenuComponent } = useContextMenu();
   let searchQuery = '';
   let searchDelay: any;
   let currentSearchId = 0;

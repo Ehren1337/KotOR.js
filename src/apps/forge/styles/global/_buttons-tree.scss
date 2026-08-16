@@ -142,7 +142,7 @@
 // =============================================================================
 
 .entrynode {
-  color: $warning;
+  color: var(--forge-danger);
 }
 
 .replynode {
@@ -150,5 +150,5 @@
 }
 
 .linknode {
-  color: $text-dark;
+  color: var(--forge-text-muted);
 }

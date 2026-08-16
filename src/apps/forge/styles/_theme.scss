@@ -1,9 +1,9 @@
 // =============================================================================
 // FORGE THEME — CSS custom properties (native desktop chrome)
+// Runtime palettes overwrite these via applyForgeTheme().
 // =============================================================================
 
-:root,
-html.KOTOR {
+:root {
   color-scheme: dark;
   --forge-bg: #1c1c1c;
   --forge-bg-elevated: #252525;
@@ -52,20 +52,10 @@ html.KOTOR {
   --forge-shadow-menu: 0 4px 12px rgba(0, 0, 0, 0.45);
 }
 
-html.TSL {
-  --forge-accent: rgb(26, 178, 140);
-  --forge-accent-hover: rgb(45, 200, 160);
-  --forge-accent-muted: rgba(26, 178, 140, 0.22);
+html[data-forge-color-scheme="light"] {
+  color-scheme: light;
 }
 
-html[data-forge-accent="kotor"] {
-  --forge-accent: #3a8fd4;
-  --forge-accent-hover: #4ea3e8;
-  --forge-accent-muted: rgba(58, 143, 212, 0.22);
-}
-
-html[data-forge-accent="tsl"] {
-  --forge-accent: rgb(26, 178, 140);
-  --forge-accent-hover: rgb(45, 200, 160);
-  --forge-accent-muted: rgba(26, 178, 140, 0.22);
+html[data-forge-color-scheme="dark"] {
+  color-scheme: dark;
 }

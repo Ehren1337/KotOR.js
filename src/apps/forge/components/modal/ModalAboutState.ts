@@ -1,5 +1,5 @@
 /**
- * Show/hide events for the About dialog.
+ * Show/hide events for the About dialog (project, author, repository, game install).
  *
  * @file ModalAboutState.ts
  * @author KobaltBlu <https://github.com/KobaltBlu>

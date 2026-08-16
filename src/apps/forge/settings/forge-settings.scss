@@ -186,3 +186,125 @@
     max-width: 200px;
   }
 }
+
+.forge-theme-designer {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--forge-border-subtle);
+}
+
+.forge-theme-designer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.forge-theme-designer__title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--forge-text-bright);
+}
+
+.forge-theme-designer__lead {
+  margin: 0;
+  color: var(--forge-text-muted);
+  font-size: var(--forge-font-size-sm);
+}
+
+.forge-theme-designer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+  max-width: 420px;
+
+  .forge-select,
+  .forge-btn {
+    margin-bottom: 0;
+    width: auto;
+    max-width: 180px;
+  }
+}
+
+.forge-theme-designer__search {
+  margin-bottom: 12px !important;
+}
+
+.forge-theme-designer__group {
+  margin-bottom: 14px;
+}
+
+.forge-theme-designer__group-title {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--forge-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.forge-theme-designer__table {
+  width: 100%;
+  border-collapse: collapse;
+
+  td {
+    padding: 6px 6px 6px 0;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--forge-border-subtle);
+  }
+
+  tr.is-customized .forge-theme-designer__token {
+    color: var(--forge-accent);
+  }
+}
+
+.forge-theme-designer__swatch-cell {
+  width: 28px;
+}
+
+.forge-theme-designer__swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--forge-border);
+  background: transparent;
+  cursor: pointer;
+}
+
+.forge-theme-designer__token {
+  font-family: var(--forge-font-mono);
+  font-size: var(--forge-font-size-sm);
+  color: var(--forge-text);
+}
+
+.forge-theme-designer__label {
+  font-weight: 600;
+  color: var(--forge-text-bright);
+}
+
+.forge-theme-designer__desc {
+  color: var(--forge-text-muted);
+  font-size: var(--forge-font-size-sm);
+}
+
+.forge-theme-designer__value-cell {
+  width: 170px;
+
+  .forge-input {
+    margin-bottom: 0;
+    font-family: var(--forge-font-mono);
+    font-size: var(--forge-font-size-sm);
+  }
+}
+
+.forge-theme-designer__reset-cell {
+  width: 64px;
+  text-align: right;
+
+  .forge-btn {
+    margin-bottom: 0;
+  }
+}

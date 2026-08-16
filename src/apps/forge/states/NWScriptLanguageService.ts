@@ -298,6 +298,23 @@ export class NWScriptLanguageService {
       }
     });
 
+    monacoEditor.editor.defineTheme('nwscript-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'functions', foreground: '9b2393' },
+        { token: 'engineAction', foreground: '098658' },
+        { token: 'engineConstant', foreground: 'AF00DB' },
+        { token: 'localFunction', foreground: '795E26' },
+        { token: 'number.hex', foreground: 'B89500' },
+        { token: 'number.float', foreground: '098658' },
+        { token: 'number', foreground: '098658' },
+      ],
+      colors: {
+        'editor.foreground': '#333333'
+      }
+    });
+
 
     // Register document formatter for NWScript
     monacoEditor.languages.registerDocumentFormattingEditProvider('nwscript', {

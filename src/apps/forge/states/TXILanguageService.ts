@@ -113,5 +113,23 @@ export class TXILanguageService {
         "editor.foreground": "#FFFFFF",
       },
     });
+
+    monacoEditor.editor.defineTheme("txi-light", {
+      base: "vs",
+      inherit: true,
+      rules: [
+        { token: "keyword", foreground: "0000FF" },
+        { token: "keyword.value", foreground: "333333" },
+        { token: "comment", foreground: "008000" },
+        { token: "number", foreground: "098658" },
+        { token: "number.hex", foreground: "B89500" },
+        { token: "number.float", foreground: "098658" },
+        { token: "string", foreground: "A31515" },
+        { token: "identifier", foreground: "001080" },
+      ],
+      colors: {
+        "editor.foreground": "#333333",
+      },
+    });
   }
 }

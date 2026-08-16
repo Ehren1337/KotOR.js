@@ -12,6 +12,11 @@ import { CameraView } from "@/apps/forge/UI3DRenderer";
 import { ForgeInput } from "@/apps/forge/components/ui";
 import { SectionContainer } from "@/apps/forge/components/SectionContainer";
 import * as monacoEditor from "monaco-editor/esm/vs/editor/editor.api";
+import {
+  addForgeThemeChangeListener,
+  getMonacoThemeForLanguage,
+  removeForgeThemeChangeListener,
+} from "@/apps/forge/settings/forgeTheme";
 
 const MODEL_VIEWER_LAYER_LABELS: Record<ModelViewerLayerKey, string> = {
   lights: 'Lights',
@@ -30,6 +35,7 @@ export const TabLYTEditor = function (props: BaseTabProps) {
   const tab = props.tab as TabLYTEditorState;
   const [code, setCode] = useState<string>(tab.code);
   const [layerMenuGen, setLayerMenuGen] = useState(0);
+  const [monacoTheme, setMonacoTheme] = useState(() => getMonacoThemeForLanguage("lyt"));
 
   const onEditorFileLoad = () => {
     setCode(tab.code);
@@ -52,6 +58,18 @@ export const TabLYTEditor = function (props: BaseTabProps) {
     const onLayers = () => setLayerMenuGen((g) => g + 1);
     tab.addEventListener('onModelViewerLayersChange', onLayers);
     return () => tab.removeEventListener('onModelViewerLayersChange', onLayers);
+  }, [tab]);
+
+  useEffect(() => {
+    const onTheme = () => {
+      const next = getMonacoThemeForLanguage("lyt");
+      setMonacoTheme(next);
+      if (tab.monaco) {
+        tab.monaco.editor.setTheme(next);
+      }
+    };
+    addForgeThemeChangeListener(onTheme);
+    return () => removeForgeThemeChangeListener(onTheme);
   }, [tab]);
 
   const onMonacoChange = (newValue: string) => {
@@ -150,7 +168,7 @@ export const TabLYTEditor = function (props: BaseTabProps) {
         width="100%"
         height="100%"
         language="lyt"
-        theme="lyt-dark"
+        theme={monacoTheme}
         value={code}
         options={editorOptions}
         onChange={onMonacoChange}

@@ -66,8 +66,8 @@ export class ModalSettingsState {
     ModalSettingsState.ProcessEventListener(type, args);
   }
 
-  static Show() {
-    ModalSettingsState.TriggerEventListener('onShow');
+  static Show(pageId?: string) {
+    ModalSettingsState.TriggerEventListener('onShow', pageId ? [pageId] : []);
   }
 
   static Hide() {

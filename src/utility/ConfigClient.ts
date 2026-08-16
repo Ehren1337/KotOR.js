@@ -232,7 +232,12 @@ const defaults: any = {
   recent_projects: [],
   recent_files: [],
   Forge: {
-    accent: 'follow-game',
+    themeByGame: {
+      KOTOR: 'kotor-dark',
+      TSL: 'tsl-dark',
+    },
+    userThemes: [],
+    themeCustomizations: {},
     defaultEditors: {},
   },
 };

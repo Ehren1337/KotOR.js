@@ -21,7 +21,7 @@ export const TabManager = function(props: TabManagerProps){
   const tabsContainerRef = useRef<HTMLDivElement>(null);
   const dragFromIndexRef = useRef<number>(-1);
   const [dragOverIndex, setDragOverIndex] = useState<number>(-1);
-  const { showContextMenu, ContextMenuComponent } = useContextMenu('dark');
+  const { showContextMenu, ContextMenuComponent } = useContextMenu();
 
   useEffect(() => {
     // console.log('tabs', tabs);

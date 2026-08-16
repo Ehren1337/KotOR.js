@@ -16,6 +16,7 @@ import {
   setNcsInspectorDrawerOpen,
   setNcsInspectorDrawerWidth,
 } from "@/apps/forge/components/tabs/tab-ncs-inspector/ncsInspectorConfig";
+import { addForgeThemeChangeListener, removeForgeThemeChangeListener } from "@/apps/forge/settings/forgeTheme";
 
 export const TabTextEditor = function(props: any){
   const tab: TabTextEditorState = props.tab;
@@ -184,7 +185,16 @@ export const TabTextEditor = function(props: any){
       }, 100);
     }
     
+    const onThemeChange = () => {
+      if (tab.monaco) {
+        tab.monaco.editor.setTheme(tab.getTheme());
+      }
+      forceUpdate({});
+    };
+    addForgeThemeChangeListener(onThemeChange);
+
     return () => {
+      removeForgeThemeChangeListener(onThemeChange);
       tab.removeEventListener('onEditorFileLoad', onEditorFileLoad);
       tab.removeEventListener('onDiffModeChanged', onDiffModeChanged);
       tab.removeEventListener('onRevealNss', onRevealNss);

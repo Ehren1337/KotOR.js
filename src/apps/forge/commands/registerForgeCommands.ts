@@ -14,6 +14,7 @@ import { ModalChangeGameState } from "@/apps/forge/components/modal/ModalChangeG
 import { ModalAboutState } from "@/apps/forge/components/modal/ModalAboutState";
 import { ModalSettingsState } from "@/apps/forge/components/modal/ModalSettingsState";
 import { compileAllNssInProject } from "@/apps/forge/helpers/ForgeNWScriptCompile";
+import { exportForgeThemeToFile, installForgeThemeFromFile } from "@/apps/forge/settings/forgeTheme";
 import { AudioPlayerState } from "@/apps/forge/states/AudioPlayerState";
 import { ForgeState } from "@/apps/forge/states/ForgeState";
 import { ModalBulkNssCompileResultsState } from "@/apps/forge/states/modal/ModalBulkNssCompileResultsState";
@@ -157,6 +158,45 @@ export function registerForgeCommands(): void {
     keywords: ["preferences", "options"],
     keybinding: "Mod+Comma",
     run: () => ModalSettingsState.Show(),
+  });
+
+  registerCommand({
+    id: "forge.preferences.colorTheme",
+    title: "Preferences: Color Theme",
+    category: "Preferences",
+    keywords: ["appearance", "theme", "light", "dark", "kotor", "tsl"],
+    run: () => ModalSettingsState.Show("appearance"),
+  });
+
+  registerCommand({
+    id: "forge.preferences.exportColorTheme",
+    title: "Preferences: Export Color Theme",
+    category: "Preferences",
+    keywords: ["appearance", "theme", "json", "share"],
+    run: async () => {
+      try {
+        await exportForgeThemeToFile();
+      } catch (error) {
+        console.error(error);
+        window.alert("Could not export this color theme.");
+      }
+    },
+  });
+
+  registerCommand({
+    id: "forge.preferences.installColorTheme",
+    title: "Preferences: Install Color Theme",
+    category: "Preferences",
+    keywords: ["appearance", "theme", "json", "import"],
+    run: async () => {
+      try {
+        await installForgeThemeFromFile();
+      } catch (error) {
+        console.error(error);
+        const message = error instanceof Error ? error.message : "Could not install this color theme.";
+        window.alert(message);
+      }
+    },
   });
 
   registerCommand({

@@ -11,8 +11,8 @@
   justify-content: space-between;
   gap: 10px;
   padding: 0 10px;
-  // background: linear-gradient(180deg, $bg-primary 0%, $bg-darker 100%);
-  border-top: 1px solid $border-accent;
+  // background: linear-gradient(180deg, var(--forge-bg) 0%, var(--forge-bg) 100%);
+  border-top: 1px solid var(--forge-accent);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.05) inset,
     0 -1px 0 rgba(0, 0, 0, 0.45);
@@ -29,7 +29,7 @@
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
-    color: $text-secondary;
+    color: var(--forge-text-bright);
     font-weight: 600;
     opacity: 0.9;
   }
@@ -38,28 +38,28 @@
     height: 24px;
     min-width: 28px;
     padding: 0 8px;
-    border: $border-width-thick solid $secondary-cyan;
+    border: $border-width-thick solid var(--forge-accent);
     border-radius: 4px;
-    background: $primary-blue-dark;
+    background: var(--forge-accent);
     color: inherit;
     font-size: 12px;
     cursor: pointer;
-    text-shadow: 0 1px 0 $secondary-cyan-darker;
+    text-shadow: 0 1px 0 var(--forge-accent);
     transition: background $transition-fast ease, color $transition-fast ease, border-color $transition-fast ease;
 
     &:hover {
-      background: $primary-blue-dark;
-      border-color: $primary-blue-lighter;
-      color: $text-white;
+      background: var(--forge-accent);
+      border-color: var(--forge-accent-hover);
+      color: var(--forge-text-bright);
     }
 
     &:active {
-      background: $primary-blue-dark;
-      border-color: $secondary-cyan;
+      background: var(--forge-accent);
+      border-color: var(--forge-accent);
     }
 
     &:focus-visible {
-      outline: 2px solid $primary-blue-lighter;
+      outline: 2px solid var(--forge-accent-hover);
       outline-offset: 1px;
     }
   }
@@ -67,11 +67,11 @@
   &__readout,
   &__meta {
     font-size: 12px;
-    color: $text-secondary;
+    color: var(--forge-text-bright);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
-    background: rgba($bg-darkest, 0.55);
-    border: 1px solid $border-secondary;
+    background: color-mix(in srgb, var(--forge-bg) 55%, transparent);
+    border: 1px solid var(--forge-border-subtle);
     border-radius: 4px;
     padding: 2px 8px;
   }
@@ -92,8 +92,8 @@
 .tab-image-viewer-viewport--3d {
   overflow: hidden;
   background:
-    radial-gradient(120% 100% at 20% 20%, rgba($primary-blue-dark, 0.18) 0%, rgba($bg-darkest, 0.92) 55%),
-    linear-gradient(180deg, rgba($bg-primary, 0.9), rgba($bg-darkest, 0.98));
+    radial-gradient(120% 100% at 20% 20%, color-mix(in srgb, var(--forge-accent) 18%, transparent) 0%, color-mix(in srgb, var(--forge-bg) 92%, transparent) 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--forge-bg) 90%, transparent), color-mix(in srgb, var(--forge-bg) 98%, transparent));
 
   canvas {
     width: 100%;
@@ -112,30 +112,30 @@
 
   height: 100%;
   min-height: 0;
-  border-left: 1px solid $border-secondary;
-  background: rgba($bg-darkest, 0.55);
+  border-left: 1px solid var(--forge-border-subtle);
+  background: color-mix(in srgb, var(--forge-bg) 55%, transparent);
 
   &__toolbar {
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 8px;
-    border-bottom: 1px solid $border-secondary;
+    border-bottom: 1px solid var(--forge-border-subtle);
   }
 
   &__btn {
     height: 24px;
     padding: 0 8px;
-    border: 1px solid rgba($border-primary, 0.9);
+    border: 1px solid color-mix(in srgb, var(--forge-border) 90%, transparent);
     border-radius: 4px;
-    background: rgba($primary-blue-dark, 0.65);
-    color: $text-white;
+    background: color-mix(in srgb, var(--forge-accent) 65%, transparent);
+    color: var(--forge-text-bright);
     font-size: 11px;
     cursor: pointer;
 
     &--secondary {
-      background: rgba($bg-tertiary, 0.65);
-      color: $text-secondary;
+      background: color-mix(in srgb, var(--forge-bg-panel) 65%, transparent);
+      color: var(--forge-text-bright);
     }
 
     &:disabled {
@@ -147,14 +147,14 @@
   &__status {
     margin-left: auto;
     font-size: 11px;
-    color: $text-quaternary;
+    color: var(--forge-text-disabled);
   }
 
   &__editor {
     flex: 1 1 auto;
     min-height: 160px;
-    border-bottom: 1px solid $border-secondary;
-    background: rgba($bg-primary, 0.72);
+    border-bottom: 1px solid var(--forge-border-subtle);
+    background: color-mix(in srgb, var(--forge-bg) 72%, transparent);
     min-width: 0;
     overflow: hidden;
   }
@@ -164,7 +164,7 @@
     overflow: auto;
     padding: 8px 10px 10px;
     font-size: 11px;
-    color: $warning;
+    color: var(--forge-danger);
   }
 
   &__issue {
