@@ -19,6 +19,7 @@ import {
   collectCalleeEntryPcsTransitiveFromMainFamily,
 } from "@/nwscript/decompiler/NWScriptCallGraphReachability";
 import { refineNwscriptAstFunctionParameterTypes } from "@/nwscript/decompiler/NWScriptDecompilerTypeRefinementPass";
+import { applyNwscriptNameInference } from "@/nwscript/decompiler/NWScriptNameInferencePass";
 
 export interface NwscriptDecompilerCleanupContext {
   cfg: NWScriptControlFlowGraph;
@@ -27,8 +28,10 @@ export interface NwscriptDecompilerCleanupContext {
 
 /**
  * Optional AST cleanup after ControlNode conversion (analogous to NCSDecomp {@code CleanupPass}).
- * Currently: drop subroutine definitions that are never invoked from script entry or transitively
- * from {@code main}/{@code StartingConditional} (so uncalled junk subs do not appear in NSS).
+ * Currently: infer BioWare-style identifier names, fold straight-line call/const
+ * initializers onto declarations, drop subroutine definitions that are never invoked
+ * from script entry or transitively from {@code main}/{@code StartingConditional}
+ * (so uncalled junk subs do not appear in NSS).
  */
 export function applyNwscriptDecompilerCleanup(
   ast: NWScriptProgramNode,
@@ -37,6 +40,7 @@ export function applyNwscriptDecompilerCleanup(
   if (ctx) {
     refineNwscriptAstFunctionParameterTypes(ast, ctx.functions);
   }
+  applyNwscriptNameInference(ast);
   for (const fn of ast.functions) {
     cleanupFunctionBody(fn);
   }
